@@ -65,3 +65,6 @@ static __attribute__((always_inline)) joforth_value_t    joforth_top_value(jofor
 }
 
 void    joforth_eval(joforth_t* joforth);
+
+void    joforth_dump_dict(joforth_t* joforth);
+void    joforth_dump_stack(joforth_t* joforth);

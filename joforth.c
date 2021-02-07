@@ -53,6 +53,16 @@ static void _minus(joforth_t* joforth) {
     joforth_push_value(joforth, val2 - val1);
 }
 
+static void _swap(joforth_t* joforth) {
+    if ( joforth->_sp < joforth->_stack_size-1) {
+        joforth_value_t tos = joforth->_stack[joforth->_sp+1];
+        joforth_value_t nos = joforth->_stack[joforth->_sp+2];
+        joforth->_stack[joforth->_sp+1] = nos;
+        joforth->_stack[joforth->_sp+2] = tos;
+    }
+    //TODO: else error 
+}
+
 static void _dot(joforth_t* joforth) {
     printf("%lld", joforth_pop_value(joforth));
 }
@@ -115,6 +125,7 @@ void    joforth_initialise(joforth_t* joforth) {
     joforth_add_word(joforth, "+", _plus, 2);
     joforth_add_word(joforth, "-", _minus, 2);
     joforth_add_word(joforth, ".", _dot, 1);
+    joforth_add_word(joforth, "swap", _swap, 2);
 }
 
 void    joforth_destroy(joforth_t* joforth) {
@@ -207,6 +218,36 @@ void    joforth_eval_word(joforth_t* joforth, const char* word) {
         else {
             //TODO: invalid format
             fprintf(stderr, "INVALID WORD \"%s\"\n", word);
+        }
+    }
+}
+
+void    joforth_dump_dict(joforth_t* joforth) {
+    printf("joforth dictionary info:\n");
+    if(joforth->_dict) {
+        for(size_t i = 0u; i < JOFORTH_DICT_BUCKETS; ++i) {
+            _joforth_dict_entry_t * entry = joforth->_dict + i;
+            while(entry) {
+                if(entry->_key) {
+                    printf("\tentry: key 0x%x, word \"%s\", takes %zu parameters\n", entry->_key, entry->_word, entry->_depth);
+                }
+                entry = entry->_next;
+            }
+        }
+    }
+    else {
+        printf("\tempty\n");
+    }
+}
+
+void    joforth_dump_stack(joforth_t* joforth) {
+    if ( joforth->_sp == joforth->_stack_size ) {
+        printf("joforth: stack is empty\n");
+    }
+    else {
+        printf("joforth stack contents:\n");
+        for(size_t sp = joforth->_sp+1; sp < joforth->_stack_size; ++sp) {
+            printf("\t%lld\n", joforth->_stack[sp]);
         }
     }
 }

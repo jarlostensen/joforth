@@ -8,9 +8,13 @@ int main(int argc, char* argv[]) {
     joforth._memory_size = 0;
     joforth._stack_size = 0;
     joforth_initialise(&joforth);
+
+    joforth_dump_dict(&joforth);
+    printf("\n");
     
     joforth_eval_word(&joforth, "80");
     joforth_eval_word(&joforth, "dup");
+    joforth_dump_stack(&joforth);
     joforth_eval_word(&joforth, "*");
     joforth_eval_word(&joforth, "dup");
     joforth_eval_word(&joforth, "6000");
