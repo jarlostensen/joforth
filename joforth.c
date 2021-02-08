@@ -2,7 +2,6 @@
 #include "joforth.h"
 #include <errno.h>
 
-//TESTING
 #include <stdio.h>
 
 // based on https://en.wikipedia.org/wiki/Pearson_hashing#C,_64-bit
@@ -146,6 +145,7 @@ void    joforth_initialise(joforth_t* joforth) {
 
 void    joforth_destroy(joforth_t* joforth) {
     joforth->_allocator->_free(joforth->_stack);
+    joforth->_allocator->_free(joforth->_rstack);
     if(joforth->_dict) {
         for(size_t i = 0u; i < JOFORTH_DICT_BUCKETS; ++i) {
             _joforth_dict_entry_t * bucket = joforth->_dict + i;
@@ -190,33 +190,30 @@ void    joforth_add_word(joforth_t* joforth, const char* word, joforth_word_hand
     //printf("\nadded word \"%s\", key = 0x%x\n", i->_word, i->_key);
 }
 
-static _JOFORTH_ALWAYS_INLINE void _push_rstack(joforth_t* joforth, _joforth_dict_entry_t* entry, _joforth_word_details_t* details) {
+static _JO_ALWAYS_INLINE void _push_rstack(joforth_t* joforth, _joforth_dict_entry_t* entry, _joforth_word_details_t* details) {
     //TODO: stack overflow
     _joforth_rstack_entry_t item = { ._entry = entry, ._details = details };
     joforth->_rstack[joforth->_rp--] = item;
 }
 
-static _JOFORTH_ALWAYS_INLINE _joforth_rstack_entry_t _pop_rstack(joforth_t* joforth) {
+static _JO_ALWAYS_INLINE _joforth_rstack_entry_t _pop_rstack(joforth_t* joforth) {
     //TODO: stack underflow
     return joforth->_rstack[++joforth->_rp];
 }
 
-static _JOFORTH_ALWAYS_INLINE bool _rstack_is_empty(joforth_t* joforth) {
+static _JO_ALWAYS_INLINE bool _rstack_is_empty(joforth_t* joforth) {
     return joforth->_rp == joforth->_rstack_size-1;
 }
 
-//TODO: state machine
 static size_t _count_words(const char* word) {    
     size_t words = 0;
-
     do {
         while(word[0] && word[0]==' ') ++word;
         if (word[0] && word[0]!=';') {
 
             if (word[0] == '(') {
                 while(word[0] && word[0]!=')') ++word;
-                if(!word[0]) {
-                    fprintf(stderr, "INVALID WORD; INCOMPLETE\n");
+                if(!word[0]) {                    
                     return 0;
                 }
                 ++word;
@@ -232,23 +229,23 @@ static size_t _count_words(const char* word) {
     return words;
 }
 
-static const char* _next_word(char* buffer, size_t buffer_size, const char* word, size_t* wp_) {
+static const char* _next_word(joforth_t* joforth, char* buffer, size_t buffer_size, const char* word, size_t* wp_) {
     while(word[0] && word[0]==' ') ++word;
     if(!word[0]) {
-        fprintf(stderr, "INVALID WORD; EMPTY\n");
+        joforth->_status = _JO_STATUS_INVALID_INPUT;
         return 0;
     }
     // skip comments
     if (word[0] == '(') {
         while(word[0] && word[0]!=')') ++word;
         if(!word[0]) {
-            fprintf(stderr, "INVALID WORD; INCOMPLETE\n");
+            joforth->_status = _JO_STATUS_INVALID_INPUT;            
             return 0;
         }
         ++word;
         while(word[0] && word[0]==' ') ++word;
         if(!word[0]) {
-            fprintf(stderr, "INVALID WORD; INCOMPLETE\n");
+            joforth->_status = _JO_STATUS_INVALID_INPUT;            
             return 0;
         }
     }
@@ -256,7 +253,7 @@ static const char* _next_word(char* buffer, size_t buffer_size, const char* word
     while(word[0] && word[0]!=' ') {
         buffer[wp++] = *word++;
         if(wp==buffer_size) {
-            fprintf(stderr, "INTERNAL ERROR: BUFFER OVERRUN\n");
+            joforth->_status = _JO_STATUS_INVALID_INPUT;
             return 0;
         }
     }
@@ -265,7 +262,13 @@ static const char* _next_word(char* buffer, size_t buffer_size, const char* word
     return word;
 }
 
-void    joforth_eval_word(joforth_t* joforth, const char* word) {
+bool    joforth_eval_word(joforth_t* joforth, const char* word) {
+
+    while(word[0] && word[0]==' ') ++word;
+    if (word[0] == 0) {
+        joforth->_status = _JO_STATUS_INVALID_INPUT;
+        return false;
+    }
 
     if(word[0] == ':') {
         // COMPILE 
@@ -275,9 +278,10 @@ void    joforth_eval_word(joforth_t* joforth, const char* word) {
         // we need to count the words to allocate space for them in the dictionary
         size_t words = _count_words(word);
         // identifier and at least one other word
-        if ( words<2 )
-            //ZZZ:
-            return;
+        if ( words<2 ) {
+            joforth->_status = _JO_STATUS_INVALID_INPUT;
+            return false;
+        }
 
         // minus identifier
         --words;
@@ -285,21 +289,25 @@ void    joforth_eval_word(joforth_t* joforth, const char* word) {
         char buffer[JOFORTH_MAX_WORD_LENGTH];
         size_t wp;
         // the first word is the identifier
-        word = _next_word(buffer, JOFORTH_MAX_WORD_LENGTH, word, &wp);
+        word = _next_word(joforth, buffer, JOFORTH_MAX_WORD_LENGTH, word, &wp);
         joforth_word_key_t key = pearson_hash(buffer);
         _joforth_dict_entry_t* entry = find_word(joforth, key);
         if (entry) {
-            fprintf(stderr, "DUPLICATE WORD \"%s\"\n", buffer);
-            return;
+            // already exists
+            joforth->_status = _JO_STATUS_INVALID_INPUT;            
+            return false;
         }        
         entry = _add_entry(joforth, buffer);
         // allocate a array for the sequence of words we need
         _joforth_word_details_t* details = entry->_details = (_joforth_word_details_t*)joforth->_allocator->_alloc(words*sizeof(_joforth_word_details_t));
         
         // define word; scan until ;
-        word = _next_word(buffer, JOFORTH_MAX_WORD_LENGTH, word, &wp);
-        do {
-            
+        word = _next_word(joforth, buffer, JOFORTH_MAX_WORD_LENGTH, word, &wp);
+        if (!word) {
+            return false;
+        }
+
+        do {            
             if(wp) {
                 if (buffer[0] == ';') {
                     // end of word sequence
@@ -309,37 +317,32 @@ void    joforth_eval_word(joforth_t* joforth, const char* word) {
 
                 joforth_word_key_t key = pearson_hash(buffer);
                 _joforth_dict_entry_t* sub_word = find_word(joforth, key);
-                //ZZZ:
+
                 if(!sub_word) {
                     joforth_value_t value = (joforth_value_t)strtoll(word, 0, joforth->_base);
-                    if(!errno) {
-                        printf("\tadding value %lld\n", value);
+                    if(!errno) {                     
                         // a number; we add this to the word sequence as an immediate value
                         details->_type = kWordType_Value;
                         details->_rep._value = value;
                     }
                     else {
-                        //TODO: invalid format
-                        fprintf(stderr, "INVALID WORD \"%s\"\n", word);
+                        joforth->_status = _JO_STATUS_INVALID_INPUT;
+                        return false;
                     }
-                    return;
                 }
                 else {
-                    printf("\tadding word \"%s\"\n", buffer);
                     details->_type = kWordType_Word;
                     details->_rep._word = sub_word;
                 }
-
                 ++details;
-                word = _next_word(buffer, JOFORTH_MAX_WORD_LENGTH, word, &wp);
+                word = _next_word(joforth, buffer, JOFORTH_MAX_WORD_LENGTH, word, &wp);
             }
-
         } while(wp && word[0]!=0);
 
         if ((details->_type & kWordType_End)==0) {
             // invalid termination
-            fprintf(stderr,"INVALID WORD SEQUENCE\n");
-            return;
+            joforth->_status = _JO_STATUS_INVALID_INPUT;
+            return false;
         }
 
     } else {
@@ -347,9 +350,6 @@ void    joforth_eval_word(joforth_t* joforth, const char* word) {
         // evalute a single word or number
         joforth_word_key_t key = pearson_hash(word);
         _joforth_dict_entry_t* entry = find_word(joforth, key);
-
-        // push entry on rstack
-        // while pop rstack
 
         if(entry) {
             _joforth_word_details_t* details = entry->_details;
@@ -397,11 +397,13 @@ void    joforth_eval_word(joforth_t* joforth, const char* word) {
                 joforth_push_value(joforth, value);
             }
             else {
-                //TODO: invalid format
-                fprintf(stderr, "INVALID WORD \"%s\"\n", word);
+                joforth->_status = _JO_STATUS_INVALID_INPUT;
+                return false;
             }
         }
     }
+
+    return true;
 }
 
 void    joforth_dump_dict(joforth_t* joforth) {

@@ -9,12 +9,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
-
-#if defined(_MSC_VER)
-#define _JOFORTH_ALWAYS_INLINE  __forceinline
-#else
-#define _JOFORTH_ALWAYS_INLINE __attribute__((always_inline))
-#endif
+#include <jo.h>
 
 #define JOFORTH_MAX_WORD_LENGTH 128
 
@@ -94,6 +89,8 @@ typedef struct _joforth {
     // stack pointers
     size_t                          _sp;
     size_t                          _rp;
+
+    jo_status_t                     _status;
     
 } joforth_t;
 
@@ -109,21 +106,21 @@ void    joforth_add_word(joforth_t* joforth, const char* word, joforth_word_hand
 //  joforth_eval_word(&joforth, "80");
 //  joforth_eval_word(&joforth, "squared");
 //
-void    joforth_eval_word(joforth_t* joforth, const char* word);
+bool    joforth_eval_word(joforth_t* joforth, const char* word);
 
 // push a value on the stack (use this in your handlers)
-static _JOFORTH_ALWAYS_INLINE void    joforth_push_value(joforth_t* joforth, joforth_value_t value) {
+static _JO_ALWAYS_INLINE void    joforth_push_value(joforth_t* joforth, joforth_value_t value) {
     //TODO: assert on stack overflow
     joforth->_stack[joforth->_sp--] = value;
 }
 
 // pop a value off the stack (use this in your handlers)
-static _JOFORTH_ALWAYS_INLINE joforth_value_t joforth_pop_value(joforth_t* joforth) {
+static _JO_ALWAYS_INLINE joforth_value_t joforth_pop_value(joforth_t* joforth) {
     //TODO: assert on stack underflow
     return joforth->_stack[++joforth->_sp];
 }
 // read top value from the stack (use this in your handlers)
-static _JOFORTH_ALWAYS_INLINE joforth_value_t    joforth_top_value(joforth_t* joforth) {
+static _JO_ALWAYS_INLINE joforth_value_t    joforth_top_value(joforth_t* joforth) {
     return joforth->_stack[joforth->_sp+1];
 }
 
