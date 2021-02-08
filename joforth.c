@@ -205,6 +205,52 @@ static _JO_ALWAYS_INLINE bool _rstack_is_empty(joforth_t* joforth) {
     return joforth->_rp == joforth->_rstack_size-1;
 }
 
+static joforth_value_t  _str_to_value(joforth_t* joforth, const char* str) {
+    joforth_value_t value = (joforth_value_t)strtoll(str, 0, joforth->_base);
+    if (errno) {
+        joforth->_status = _JO_STATUS_INVALID_INPUT;
+        return 0;
+    }
+    if (!value) {
+        // is it 0, or is it wrong...?
+        // skip sign first
+
+        if(*str=='-' || *str=='+')
+            ++str;
+
+        switch (joforth->_base) {
+        case 10:
+        {
+            while(*str && *str>='0' && *str<='9') ++str;
+            if ( *str && *str!=' ' ) {
+                // some non-decimal character found
+                joforth->_status = _JO_STATUS_INVALID_INPUT;
+                return 0;
+            }
+            // otherwise it's a valid 0
+            joforth->_status = _JO_STATUS_SUCCESS;
+        }
+        break;
+        case 16:
+        {
+            while(*str && *str>='0' && *str<='9' && *str>='a' && *str<='f') ++str;
+            if ( *str && *str!=' ' ) {
+                // some non-hex character found
+                joforth->_status = _JO_STATUS_INVALID_INPUT;
+                return 0;
+            }
+            // otherwise it's a valid 0
+            joforth->_status = _JO_STATUS_SUCCESS;
+        }
+        break;
+        default: {
+            joforth->_status = _JO_STATUS_INVALID_INPUT;            
+        }
+        }
+    }
+    return value;
+}
+
 static size_t _count_words(const char* word) {    
     size_t words = 0;
     do {
@@ -251,7 +297,7 @@ static const char* _next_word(joforth_t* joforth, char* buffer, size_t buffer_si
     }
     size_t wp = 0;
     while(word[0] && word[0]!=' ') {
-        buffer[wp++] = *word++;
+        buffer[wp++] = (char)tolower(*word++);
         if(wp==buffer_size) {
             joforth->_status = _JO_STATUS_INVALID_INPUT;
             return 0;
@@ -263,6 +309,8 @@ static const char* _next_word(joforth_t* joforth, char* buffer, size_t buffer_si
 }
 
 bool    joforth_eval_word(joforth_t* joforth, const char* word) {
+
+    joforth->_status = _JO_STATUS_SUCCESS;         
 
     while(word[0] && word[0]==' ') ++word;
     if (word[0] == 0) {
@@ -391,15 +439,12 @@ bool    joforth_eval_word(joforth_t* joforth, const char* word) {
             }
         }
         else {
-            joforth_value_t value = (joforth_value_t)strtoll(word, 0, joforth->_base);
-            if(!errno) {
-                // push value
-                joforth_push_value(joforth, value);
-            }
-            else {
-                joforth->_status = _JO_STATUS_INVALID_INPUT;
+            joforth_value_t value = _str_to_value(joforth, word);
+            if(_JO_FAILED(joforth->_status)) {
                 return false;
             }
+            // push value
+            joforth_push_value(joforth, value);            
         }
     }
 
