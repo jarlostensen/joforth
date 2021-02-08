@@ -4,6 +4,11 @@ It made me realise that Forth is the ideal runtime for my kernel projects so I r
 </br>
 It has no dependencies outside of standard C functionality, and it's built using CMake. 
 </br>
+## It Is Not...
+* Fast
+* Complete
+* Clever.
+
 That's all.
 
 
