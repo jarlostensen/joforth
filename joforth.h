@@ -27,6 +27,7 @@ typedef enum _joforth_word_type {
     kWordType_Handler = 1,
     kWordType_Value,
     kWordType_Word,
+    kWordType_Prefix,
     kWordType_End = 8,
     kWordType_TypeMask = 7
 

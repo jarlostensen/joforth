@@ -12,6 +12,18 @@ void test_incorrect_number(void) {
     joforth_pop_value(&joforth);    
 }
 
+void test_dec_hex(void) {
+    assert(joforth_eval_word(&joforth, "hex"));
+    assert(joforth_eval_word(&joforth, "0x2f"));
+    assert(joforth_eval_word(&joforth, "0xz42")==false);
+    assert(joforth_top_value(&joforth)==0x2f);
+    assert(joforth_eval_word(&joforth, "dec"));
+    assert(joforth_eval_word(&joforth, "42"));
+    assert(joforth_top_value(&joforth)==42);
+    assert(joforth_eval_word(&joforth, "0x42")==false);
+    assert(joforth_eval_word(&joforth, "popa"));
+}
+
 void test_define_word(void) {
     assert(joforth_eval_word(&joforth, ": squared ( a -- a*a ) dup *  ;"));
     assert(joforth_eval_word(&joforth, "80"));
@@ -26,8 +38,7 @@ void test_create_allot(void) {
     assert(joforth_eval_word(&joforth, "here"));
     joforth_value_t top2 = joforth_top_value(&joforth);
     assert(top == top2);
-    joforth_pop_value(&joforth);
-    joforth_pop_value(&joforth);
+    assert(joforth_eval_word(&joforth, "popa"));
 }
 
 int main(int argc, char* argv[]) {
@@ -45,6 +56,7 @@ int main(int argc, char* argv[]) {
     joforth_dump_dict(&joforth);
     printf("\n");
     
+    test_dec_hex();
     //test_create_allot();
     test_incorrect_number();
     test_define_word();
