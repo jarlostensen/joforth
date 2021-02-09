@@ -1,6 +1,8 @@
 
 #include "joforth.h"
 #include <errno.h>
+#include <string.h>
+#include <assert.h>
 
 #include <stdio.h>
 
@@ -29,6 +31,32 @@ joforth_word_key_t pearson_hash(const char* _x) {
 }
 
 // ================================================================
+
+#define JOFORTH_DICT_BUCKETS    257
+static _joforth_dict_entry_t* _add_entry(joforth_t* joforth, const char* word) {
+    joforth_word_key_t key = pearson_hash(word);
+    //TODO: check it's not already there
+    size_t index = key % JOFORTH_DICT_BUCKETS;
+    _joforth_dict_entry_t* i = joforth->_dict + index;
+    if (i->_next != 0) {
+        while (i->_next != 0) {
+            i = i->_next;
+        }
+        i->_next = (_joforth_dict_entry_t*)joforth->_allocator->_alloc(sizeof(_joforth_dict_entry_t));
+        i = i->_next;
+        i->_next = 0;
+    }
+    i->_key = key;
+    i->_word = word; //<ZZZ: this *should* be copied, not stored
+    return i;
+}
+
+static _joforth_dict_entry_t* _add_word(joforth_t* joforth, const char* word) {
+
+    _joforth_dict_entry_t* i = _add_entry(joforth, word);
+    i->_details = (_joforth_word_details_t*)joforth->_allocator->_alloc(sizeof(_joforth_word_details_t));    
+    return i;
+}
 
 static void _dup(joforth_t* joforth) {
     joforth_push_value(joforth, joforth_top_value(joforth));
@@ -95,14 +123,27 @@ static void _hex(joforth_t* joforth) {
 }
 
 static void _create(joforth_t* joforth) {
+    // the stack MUST contain the address of the name of a new word we'll create
+    char* ptr = (char*)joforth_pop_value(joforth);
+    // here goes nothing...
+    _joforth_dict_entry_t* entry = _add_word(joforth, ptr);
+    if (entry) {
+        entry->_details->_type = kWordType_End | kWordType_Value;
+        // next available memory slot, at the time we're creating
+        entry->_details->_rep._value = (joforth_value_t)joforth->_mp;
+    }
+    else {
+        joforth->_status = _JO_STATUS_INVALID_INPUT;
+    }
+}
 
+static void _here(joforth_t* joforth) {
+    joforth_push_value(joforth, joforth->_mp);
 }
 
 // ================================================================
 
-#define JOFORTH_DICT_BUCKETS    257
-
-static _joforth_dict_entry_t* find_word(joforth_t* joforth, joforth_word_key_t key) {
+static _joforth_dict_entry_t* _find_word(joforth_t* joforth, joforth_word_key_t key) {
     size_t index = key % JOFORTH_DICT_BUCKETS;
     _joforth_dict_entry_t* i = joforth->_dict + index;
     while (i != 0) {
@@ -138,12 +179,17 @@ void    joforth_initialise(joforth_t* joforth) {
     joforth->_rstack_size = joforth->_rstack_size ? joforth->_rstack_size : JOFORTH_DEFAULT_RSTACK_SIZE;
     joforth->_rstack = (_joforth_rstack_entry_t*)joforth->_allocator->_alloc(joforth->_rstack_size * sizeof(_joforth_rstack_entry_t));
 
+    joforth->_memory_size = joforth->_memory_size ? joforth->_memory_size : JOFORTH_DEFAULT_MEMORY_SIZE;
+    joforth->_memory = (uint8_t*)joforth->_allocator->_alloc(joforth->_memory_size);
+
     joforth->_dict = (_joforth_dict_entry_t*)joforth->_allocator->_alloc(JOFORTH_DICT_BUCKETS * sizeof(_joforth_dict_entry_t));
     memset(joforth->_dict, 0, JOFORTH_DICT_BUCKETS * sizeof(_joforth_dict_entry_t));
 
     // empty stacks
     joforth->_sp = joforth->_stack_size - 1;
     joforth->_rp = joforth->_rstack_size - 1;
+    // full heap
+    joforth->_mp = 0;
 
     // start with decimal
     joforth->_base = 10;
@@ -161,11 +207,19 @@ void    joforth_initialise(joforth_t* joforth) {
     joforth_add_word(joforth, "dec", _dec, 0);
     joforth_add_word(joforth, "hex", _hex, 0);
     joforth_add_word(joforth, "popa", _popa, 0);
+    joforth_add_word(joforth, "here", _here, 0);
+
+    // add special words
+    _joforth_dict_entry_t* entry = _add_word(joforth, "create");
+    entry->_details->_type = kWordType_End | kWordType_Prefix;    
+    entry->_details->_rep._handler = _create;
+    entry->_details->_depth = 1;
 }
 
 void    joforth_destroy(joforth_t* joforth) {
     joforth->_allocator->_free(joforth->_stack);
     joforth->_allocator->_free(joforth->_rstack);
+    joforth->_allocator->_free(joforth->_memory);
     if (joforth->_dict) {
         for (size_t i = 0u; i < JOFORTH_DICT_BUCKETS; ++i) {
             _joforth_dict_entry_t* bucket = joforth->_dict + i;
@@ -181,28 +235,9 @@ void    joforth_destroy(joforth_t* joforth) {
     memset(joforth, 0, sizeof(joforth_t));
 }
 
-static _joforth_dict_entry_t* _add_entry(joforth_t* joforth, const char* word) {
-    joforth_word_key_t key = pearson_hash(word);
-    //TODO: check it's not already there
-    size_t index = key % JOFORTH_DICT_BUCKETS;
-    _joforth_dict_entry_t* i = joforth->_dict + index;
-    if (i->_next != 0) {
-        while (i->_next != 0) {
-            i = i->_next;
-        }
-        i->_next = (_joforth_dict_entry_t*)joforth->_allocator->_alloc(sizeof(_joforth_dict_entry_t));
-        i = i->_next;
-        i->_next = 0;
-    }
-    i->_key = key;
-    i->_word = word; //<ZZZ: this *should* be copied, not stored
-    return i;
-}
-
 void    joforth_add_word(joforth_t* joforth, const char* word, joforth_word_handler_t handler, size_t depth) {
 
-    _joforth_dict_entry_t* i = _add_entry(joforth, word);
-    i->_details = (_joforth_word_details_t*)joforth->_allocator->_alloc(sizeof(_joforth_word_details_t));
+    _joforth_dict_entry_t* i = _add_word(joforth, word);
     i->_details->_depth = depth;
     i->_details->_type = kWordType_Handler | kWordType_End;
     i->_details->_rep._handler = handler;
@@ -210,19 +245,27 @@ void    joforth_add_word(joforth_t* joforth, const char* word, joforth_word_hand
     //printf("\nadded word \"%s\", key = 0x%x\n", i->_word, i->_key);
 }
 
+
 static _JO_ALWAYS_INLINE void _push_rstack(joforth_t* joforth, _joforth_dict_entry_t* entry, _joforth_word_details_t* details) {
-    //TODO: stack overflow
+    assert(joforth->_rp);
     _joforth_rstack_entry_t item = { ._entry = entry, ._details = details };
     joforth->_rstack[joforth->_rp--] = item;
 }
 
 static _JO_ALWAYS_INLINE _joforth_rstack_entry_t _pop_rstack(joforth_t* joforth) {
-    //TODO: stack underflow
+    assert(joforth->_rp < joforth->_rstack_size - 1);
     return joforth->_rstack[++joforth->_rp];
 }
 
 static _JO_ALWAYS_INLINE bool _rstack_is_empty(joforth_t* joforth) {
     return joforth->_rp == joforth->_rstack_size - 1;
+}
+
+static _JO_ALWAYS_INLINE uint8_t* _allot(joforth_t* joforth, size_t bytes) {
+    assert(joforth->_mp < (joforth->_memory_size - bytes));
+    size_t mp = joforth->_mp;
+    joforth->_mp += bytes;
+    return joforth->_memory + mp;
 }
 
 static joforth_value_t  _str_to_value(joforth_t* joforth, const char* str) {
@@ -299,7 +342,7 @@ static size_t _count_words(const char* word) {
 }
 
 static const char* _next_word(joforth_t* joforth, char* buffer, size_t buffer_size, const char* word, size_t* wp_) {
-    
+
     *wp_ = 0;
     while (word[0] && word[0] == ' ') ++word;
     if (!word[0]) {
@@ -368,7 +411,7 @@ bool    joforth_eval_word(joforth_t* joforth, const char* word) {
         // the first word is the identifier
         word = _next_word(joforth, buffer, JOFORTH_MAX_WORD_LENGTH, word, &wp);
         joforth_word_key_t key = pearson_hash(buffer);
-        _joforth_dict_entry_t* entry = find_word(joforth, key);
+        _joforth_dict_entry_t* entry = _find_word(joforth, key);
         if (entry) {
             // already exists
             joforth->_status = _JO_STATUS_INVALID_INPUT;
@@ -384,6 +427,9 @@ bool    joforth_eval_word(joforth_t* joforth, const char* word) {
         return false;
     }
 
+    size_t word_count = 1;
+    size_t req_word_count = 0;
+
     do {
         if (wp) {
             if (compiling && buffer[0] == ';') {
@@ -393,7 +439,7 @@ bool    joforth_eval_word(joforth_t* joforth, const char* word) {
             }
 
             joforth_word_key_t key = pearson_hash(buffer);
-            _joforth_dict_entry_t* entry = find_word(joforth, key);
+            _joforth_dict_entry_t* entry = _find_word(joforth, key);
 
             if (entry) {
                 if (compiling) {
@@ -404,6 +450,7 @@ bool    joforth_eval_word(joforth_t* joforth, const char* word) {
                     details = entry->_details;
                     // process the words associated with one entry
                     while (1) {
+
                         // execute word(s)
                         switch (details->_type & kWordType_TypeMask) {
                         case kWordType_Handler:
@@ -432,13 +479,22 @@ bool    joforth_eval_word(joforth_t* joforth, const char* word) {
                         }
                         case kWordType_Prefix:
                         {
-                            // push for delayed evaluation once we reach the end of the current word
-                            _push_rstack(joforth, details->_rep._word, details->_rep._word->_details);
-                        }
-                        break;
+                            // words such as CREATE and VARIABLE which don't take their argument from the 
+                            // current stack, but rather from the next N values pushed on it.
+                            // this is a bit of an "internal" hack, there must be a more elegant solution to this...
+                            _push_rstack(joforth, entry, details);
+                            req_word_count = details->_depth;
+                            word_count = 0;
+                        }       
                         default:;
                         }
-                        if (details->_type & kWordType_End) {
+                        
+                        if (details->_type & kWordType_Prefix) {
+                            // break out of the inner word processing loop
+                            break;
+                        }
+
+                        if ((details->_type & kWordType_End)) {
                             if (_rstack_is_empty(joforth)) {
                                 // we're done for now
                                 break;
@@ -456,24 +512,46 @@ bool    joforth_eval_word(joforth_t* joforth, const char* word) {
             else {
                 joforth_value_t value = _str_to_value(joforth, buffer);
                 if (_JO_FAILED(joforth->_status)) {
-                    return false;
-                }
-                if (compiling) {
-                    // a number; we add this to the word sequence as an immediate value
-                    details->_type = kWordType_Value;
-                    details->_rep._value = value;
+                    // we'll just have to store this "as-is" and hope for the best
+                    uint8_t* memory = _allot(joforth, wp + 1);
+                    memcpy(memory, buffer, wp + 1);
+                    //NOTE: we're storing the address here
+                    joforth_push_value(joforth, (joforth_value_t)memory);
                 }
                 else {
-                    joforth_push_value(joforth, value);
+                    if (compiling) {
+                        // a number; we add this to the word sequence as an immediate value
+                        details->_type = kWordType_Value;
+                        details->_rep._value = value;
+                    }
+                    else {
+                        joforth_push_value(joforth, value);
+                    }
                 }
             }
 
             if (compiling) {
                 ++details;
             }
+
             word = _next_word(joforth, buffer, JOFORTH_MAX_WORD_LENGTH, word, &wp);
+            ++word_count;
+
+            if (req_word_count && word_count > req_word_count) {
+                // one of the prefix words can be evaluated and 
+                // we expect a prefix word to be on the rstack at this point and we'll execute it directly
+                assert( !_rstack_is_empty(joforth) );
+                _joforth_rstack_entry_t i = _pop_rstack(joforth);
+                entry = i._entry;
+                details = i._details;
+                assert( details->_type & kWordType_Prefix );
+                details->_rep._handler(joforth);
+            }
         }
-    } while (wp && word[0] != 0);   
+    } while (wp);
+
+    // we shouldn't have any left overs here....
+    assert(_rstack_is_empty(joforth));
 
     return true;
 }

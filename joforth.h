@@ -80,16 +80,21 @@ typedef struct _joforth {
     _joforth_dict_entry_t       *   _dict;
     joforth_value_t             *   _stack;
     _joforth_rstack_entry_t     *   _rstack;
-    joforth_allocator_t         *   _allocator;    
+    uint8_t                     *   _memory;
+    joforth_allocator_t         *   _allocator;
     // current input base
     int                             _base;
     // if 0 then default, in units of joforth_value_t 
     size_t                          _stack_size;
     // if 0 then default, in units of _joforth_dict_entry_t 
     size_t                          _rstack_size;    
+    // if 0 then default, in units of bytes
+    size_t                          _memory_size;
     // stack pointers
     size_t                          _sp;
     size_t                          _rp;
+    // memory allocation pointer (we don't do "free")
+    size_t                          _mp;
 
     jo_status_t                     _status;
     
