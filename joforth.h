@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include <assert.h>
 #include <jo.h>
 
 #define JOFORTH_MAX_WORD_LENGTH 128
@@ -99,6 +100,10 @@ typedef struct _joforth {
     size_t                          _mp;
 
     jo_status_t                     _status;
+    struct {
+        uint8_t     _zf:1;
+
+    } _flags;
     
 } joforth_t;
 
@@ -117,16 +122,19 @@ void    joforth_add_word(joforth_t* joforth, const char* word, joforth_word_hand
 bool    joforth_eval_word(joforth_t* joforth, const char* word);
 
 // push a value on the stack (use this in your handlers)
+// sets the zero flag if the value is 0
 static _JO_ALWAYS_INLINE void    joforth_push_value(joforth_t* joforth, joforth_value_t value) {
-    //TODO: assert on stack overflow
+    assert(joforth->_sp);
     joforth->_stack[joforth->_sp--] = value;
+    joforth->_flags._zf = value == 0 ? 1 : 0;
 }
 
 // pop a value off the stack (use this in your handlers)
 static _JO_ALWAYS_INLINE joforth_value_t joforth_pop_value(joforth_t* joforth) {
-    //TODO: assert on stack underflow
+    assert(joforth->_sp < joforth->_stack_size-1);
     return joforth->_stack[++joforth->_sp];
 }
+
 // read top value from the stack (use this in your handlers)
 static _JO_ALWAYS_INLINE joforth_value_t    joforth_top_value(joforth_t* joforth) {
     return joforth->_stack[joforth->_sp+1];

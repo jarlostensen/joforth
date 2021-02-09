@@ -52,6 +52,10 @@ void test_comparison(void) {
     assert(joforth_pop_value(&joforth)==JOFORTH_TRUE);
 }
 
+void test_ifthenelse(void) {
+    assert(joforth_eval_word(&joforth, "0 0 =  IF  .\" false\"  ELSE  .\" true\"  THEN"));
+}
+
 int main(int argc, char* argv[]) {
 
     joforth_allocator_t allocator = {
@@ -68,20 +72,13 @@ int main(int argc, char* argv[]) {
     joforth_dump_dict(&joforth);
     printf("\n");
     
+    assert(joforth_eval_word(&joforth, ".\"running tests..\" cr"));
     test_dec_hex();
     test_create_allot();
     test_incorrect_number();
     test_comparison();
     test_define_word();
 
-    joforth_eval_word(&joforth, "6000");
-    joforth_eval_word(&joforth, "-");
-    joforth_eval_word(&joforth, "400");
-    joforth_eval_word(&joforth, "+");
-    joforth_eval_word(&joforth, "0");
-    joforth_eval_word(&joforth, "-");
-    joforth_eval_word(&joforth, ".");
-    
     printf(" bye\n");
     joforth_dump_stack(&joforth);
 
