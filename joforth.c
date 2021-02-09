@@ -58,6 +58,13 @@ static _joforth_dict_entry_t* _add_word(joforth_t* joforth, const char* word) {
     return i;
 }
 
+static uint8_t* _alloc(joforth_t* joforth, size_t bytes) {
+    assert(joforth->_mp < (joforth->_memory_size - bytes));
+    size_t mp = joforth->_mp;
+    joforth->_mp += bytes;
+    return joforth->_memory + mp;
+}
+
 static void _dup(joforth_t* joforth) {
     joforth_push_value(joforth, joforth_top_value(joforth));
 }
@@ -141,6 +148,25 @@ static void _here(joforth_t* joforth) {
     joforth_push_value(joforth, joforth->_mp);
 }
 
+static void _cells(joforth_t* joforth) {
+    // convert COUNT CELLS to a byte count and push it
+    joforth_value_t count = joforth_pop_value(joforth);
+    joforth_push_value(joforth, count*sizeof(joforth_value_t));
+}
+
+static void _allot(joforth_t* joforth) {
+    // expects byte count on stack
+    joforth_value_t bytes = joforth_pop_value(joforth);
+    if (bytes) {
+        //NOTE: we don't save the result, it's expected that the caller 
+        //      uses variables or HERE for that
+        _alloc(joforth, bytes);        
+    }
+    else {
+        joforth->_status = _JO_STATUS_INVALID_INPUT;
+    }
+}
+
 // ================================================================
 
 static _joforth_dict_entry_t* _find_word(joforth_t* joforth, joforth_word_key_t key) {
@@ -208,6 +234,8 @@ void    joforth_initialise(joforth_t* joforth) {
     joforth_add_word(joforth, "hex", _hex, 0);
     joforth_add_word(joforth, "popa", _popa, 0);
     joforth_add_word(joforth, "here", _here, 0);
+    joforth_add_word(joforth, "allot", _allot, 1);
+    joforth_add_word(joforth, "cells", _cells, 1);
 
     // add special words
     _joforth_dict_entry_t* entry = _add_word(joforth, "create");
@@ -259,13 +287,6 @@ static _JO_ALWAYS_INLINE _joforth_rstack_entry_t _pop_rstack(joforth_t* joforth)
 
 static _JO_ALWAYS_INLINE bool _rstack_is_empty(joforth_t* joforth) {
     return joforth->_rp == joforth->_rstack_size - 1;
-}
-
-static _JO_ALWAYS_INLINE uint8_t* _allot(joforth_t* joforth, size_t bytes) {
-    assert(joforth->_mp < (joforth->_memory_size - bytes));
-    size_t mp = joforth->_mp;
-    joforth->_mp += bytes;
-    return joforth->_memory + mp;
 }
 
 static joforth_value_t  _str_to_value(joforth_t* joforth, const char* str) {
@@ -346,7 +367,6 @@ static const char* _next_word(joforth_t* joforth, char* buffer, size_t buffer_si
     *wp_ = 0;
     while (word[0] && word[0] == ' ') ++word;
     if (!word[0]) {
-        joforth->_status = _JO_STATUS_INVALID_INPUT;
         return 0;
     }
     // skip comments
@@ -378,7 +398,8 @@ static const char* _next_word(joforth_t* joforth, char* buffer, size_t buffer_si
 
 bool    joforth_eval_word(joforth_t* joforth, const char* word) {
 
-    joforth->_status = _JO_STATUS_SUCCESS;
+    if(_JO_FAILED(joforth->_status))
+        return false;
 
     while (word[0] && word[0] == ' ') ++word;
     if (word[0] == 0) {
@@ -423,7 +444,7 @@ bool    joforth_eval_word(joforth_t* joforth, const char* word) {
     }
 
     word = _next_word(joforth, buffer, JOFORTH_MAX_WORD_LENGTH, word, &wp);
-    if (!word) {
+    if (!word || _JO_FAILED(joforth->_status)) {
         return false;
     }
 
@@ -457,6 +478,9 @@ bool    joforth_eval_word(joforth_t* joforth, const char* word) {
                             // check that the stack has enough variables for this routine to execute
                             if ((joforth->_stack_size - joforth->_sp - 1) >= details->_depth) {
                                 details->_rep._handler(joforth);
+                                if (_JO_FAILED(joforth->_status)) {
+                                    return false;
+                                }
                             }
                             else {
                                 joforth->_status = _JO_STATUS_FAILED_PRECONDITION;
@@ -513,10 +537,11 @@ bool    joforth_eval_word(joforth_t* joforth, const char* word) {
                 joforth_value_t value = _str_to_value(joforth, buffer);
                 if (_JO_FAILED(joforth->_status)) {
                     // we'll just have to store this "as-is" and hope for the best
-                    uint8_t* memory = _allot(joforth, wp + 1);
+                    uint8_t* memory = _alloc(joforth, wp + 1);
                     memcpy(memory, buffer, wp + 1);
                     //NOTE: we're storing the address here
                     joforth_push_value(joforth, (joforth_value_t)memory);
+                    joforth->_status = _JO_STATUS_SUCCESS;
                 }
                 else {
                     if (compiling) {
@@ -546,6 +571,10 @@ bool    joforth_eval_word(joforth_t* joforth, const char* word) {
                 details = i._details;
                 assert( details->_type & kWordType_Prefix );
                 details->_rep._handler(joforth);
+                if (_JO_FAILED(joforth->_status)) {
+                    return false;
+                }
+                req_word_count = 0;
             }
         }
     } while (wp);

@@ -30,13 +30,12 @@ void test_define_word(void) {
 }
 
 void test_create_allot(void) {
-    assert(joforth_eval_word(&joforth, "create X"));
+    assert(joforth_eval_word(&joforth, "create X 8 cells allot"));
     assert(joforth_eval_word(&joforth, "X"));
     assert(joforth_eval_word(&joforth, "here"));
     joforth_value_t top1 = joforth_pop_value(&joforth);
     joforth_value_t top2 = joforth_pop_value(&joforth);
-    assert(top1 == top2);
-    assert(joforth_eval_word(&joforth, "popa"));
+    assert(top1 == top2+64);
 }
 
 int main(int argc, char* argv[]) {
