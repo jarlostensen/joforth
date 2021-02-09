@@ -76,6 +76,21 @@ static uint8_t* _alloc(joforth_t* joforth, size_t bytes) {
     return joforth->_memory + mp;
 }
 
+static void _lt(joforth_t* joforth) {
+    //NOTE: NOS < TOS
+    joforth_push_value(joforth, joforth_pop_value(joforth) > joforth_pop_value(joforth) ? JOFORTH_TRUE : JOFORTH_FALSE);
+}
+
+static void _gt(joforth_t* joforth) {
+    //NOTE: NOS > TOS
+    joforth_push_value(joforth, joforth_pop_value(joforth) < joforth_pop_value(joforth) ? JOFORTH_TRUE : JOFORTH_FALSE);
+}
+
+static void _eq(joforth_t* joforth) {
+    //NOTE: NOS == TOS
+    joforth_push_value(joforth, joforth_pop_value(joforth) == joforth_pop_value(joforth) ? JOFORTH_TRUE : JOFORTH_FALSE);
+}
+
 static void _dup(joforth_t* joforth) {
     joforth_push_value(joforth, joforth_top_value(joforth));
 }
@@ -232,6 +247,9 @@ void    joforth_initialise(joforth_t* joforth) {
     joforth->_base = 10;
 
     // add built-in handlers
+    joforth_add_word(joforth, "<", _lt, 2);
+    joforth_add_word(joforth, ">", _gt, 2);
+    joforth_add_word(joforth, "=", _eq, 2);
     joforth_add_word(joforth, "dup", _dup, 1);
     joforth_add_word(joforth, "*", _mul, 2);
     joforth_add_word(joforth, "+", _plus, 2);

@@ -43,6 +43,15 @@ void test_create_allot(void) {
     assert(joforth_pop_value(&joforth) == 137);
 }
 
+void test_comparison(void) {
+    assert(joforth_eval_word(&joforth, "2 3 >"));
+    assert(joforth_pop_value(&joforth)==JOFORTH_FALSE);
+    assert(joforth_eval_word(&joforth, "2 3 <"));
+    assert(joforth_pop_value(&joforth)==JOFORTH_TRUE);
+    assert(joforth_eval_word(&joforth, "3 3 ="));
+    assert(joforth_pop_value(&joforth)==JOFORTH_TRUE);
+}
+
 int main(int argc, char* argv[]) {
 
     joforth_allocator_t allocator = {
@@ -62,6 +71,7 @@ int main(int argc, char* argv[]) {
     test_dec_hex();
     test_create_allot();
     test_incorrect_number();
+    test_comparison();
     test_define_word();
 
     joforth_eval_word(&joforth, "6000");
