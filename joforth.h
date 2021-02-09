@@ -62,6 +62,8 @@ typedef struct _joforth_dict_entry {
 #define JOFORTH_DEFAULT_STACK_SIZE      0x8000
 #define JOFORTH_DEFAULT_MEMORY_SIZE     0x8000
 #define JOFORTH_DEFAULT_RSTACK_SIZE     0x100
+#define JOFORTH_TRUE                    ((joforth_value_t)1)
+#define JOFORTH_FALSE                   ((joforth_value_t)0)
 
 // used internally
 typedef struct _joforth_rstack_entry {

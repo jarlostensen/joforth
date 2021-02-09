@@ -13,11 +13,23 @@ joforth_word_key_t pearson_hash(const char* _x) {
     size_t i;
     size_t j;
     unsigned char h;
-    joforth_word_key_t retval;
+    joforth_word_key_t retval = 0;
     const unsigned char* x = (const unsigned char*)_x;
 
-    //TODO: if x is shorter than the key length we just replicate the MSC 
-    //      and use the bytes as the key
+    //size_t len = strlen(x);
+    //if (len < sizeof(retval)) {
+    //    joforth_word_key_t* src = (joforth_word_key_t*)x;
+    //    for (size_t n = 0; n < len; ++n) {
+    //        retval |= (x[n] << (8*n));
+    //    }
+    //    // simply extend with first character
+    //    while (len < sizeof(retval)) {
+    //        retval |= (x[0] << (8*len));
+    //        ++len;
+    //    }
+    //    
+    //    return retval;
+    //}
 
     for (j = 0; j < sizeof(retval); ++j) {
         h = T[(x[0] + j) % 256];
@@ -38,16 +50,15 @@ static _joforth_dict_entry_t* _add_entry(joforth_t* joforth, const char* word) {
     //TODO: check it's not already there
     size_t index = key % JOFORTH_DICT_BUCKETS;
     _joforth_dict_entry_t* i = joforth->_dict + index;
-    if (i->_next != 0) {
-        while (i->_next != 0) {
-            i = i->_next;
-        }
-        i->_next = (_joforth_dict_entry_t*)joforth->_allocator->_alloc(sizeof(_joforth_dict_entry_t));
+    while (i->_next != 0) {
         i = i->_next;
-        i->_next = 0;
     }
+
+    i->_next = (_joforth_dict_entry_t*)joforth->_allocator->_alloc(sizeof(_joforth_dict_entry_t));
+    memset(i->_next, 0, sizeof(_joforth_dict_entry_t));
     i->_key = key;
-    i->_word = word; //<ZZZ: this *should* be copied, not stored
+    i->_word = word; //<ZZZ: this *should* be copied, not stored    
+
     return i;
 }
 
@@ -590,9 +601,12 @@ void    joforth_dump_dict(joforth_t* joforth) {
     if (joforth->_dict) {
         for (size_t i = 0u; i < JOFORTH_DICT_BUCKETS; ++i) {
             _joforth_dict_entry_t* entry = joforth->_dict + i;
-            while (entry) {
-                if (entry->_key) {
+            while (entry->_key) {    
+                if ((entry->_details->_type & kWordType_Prefix)==0) {
                     printf("\tentry: key 0x%x, word \"%s\", takes %zu parameters\n", entry->_key, entry->_word, entry->_details->_depth);
+                }
+                else {
+                    printf("\tPREFIX entry: word \"%s\", takes %zu parameters\n", entry->_word, entry->_details->_depth);
                 }
                 entry = entry->_next;
             }
