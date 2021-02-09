@@ -36,6 +36,11 @@ void test_create_allot(void) {
     joforth_value_t top1 = joforth_pop_value(&joforth);
     joforth_value_t top2 = joforth_pop_value(&joforth);
     assert(top1 == top2+64);
+    // store 137 in the 5th cell, starting at X
+    assert(joforth_eval_word(&joforth, "137  X 5 cells +  !"));
+    // retrieve it
+    assert(joforth_eval_word(&joforth, "X 5 cells + @"));
+    assert(joforth_pop_value(&joforth) == 137);
 }
 
 int main(int argc, char* argv[]) {

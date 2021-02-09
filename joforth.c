@@ -103,16 +103,16 @@ static void _dot(joforth_t* joforth) {
 }
 
 static void _bang(joforth_t* joforth) {
-    // store value at address
+    // store value at (relative) address
     joforth_value_t address = joforth_pop_value(joforth);
-    joforth_value_t* ptr = (joforth_value_t*)address;
+    joforth_value_t* ptr = (joforth_value_t*)(joforth->_memory + address);
     ptr[0] = joforth_pop_value(joforth);
 }
 
 static void _at(joforth_t* joforth) {
-    // retrieve value at address
+    // retrieve value at (relative) address
     joforth_value_t address = joforth_pop_value(joforth);
-    joforth_value_t* ptr = (joforth_value_t*)address;
+    joforth_value_t* ptr = (joforth_value_t*)(joforth->_memory + address);
     joforth_push_value(joforth, ptr[0]);
 }
 
