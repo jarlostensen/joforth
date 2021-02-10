@@ -20,6 +20,8 @@ typedef enum _joforth_ir {
     kIr_Loop,
     kIr_EndDefineWord,    
     kIr_Dot,
+    kIr_True,
+    kIr_False,
 
 } _joforth_ir_t;
 
@@ -30,6 +32,8 @@ typedef struct _joforth_keyword_lut_entry {
 
 static const _joforth_keyword_lut_entry_t _joforth_keyword_lut[] = {
     { ._id = ";", ._ir = kIr_EndDefineWord },
+    { ._id = "true", ._ir = kIr_True },
+    { ._id = "false", ._ir = kIr_False },
     { ._id = "if", ._ir = kIr_If },
     { ._id = "else", ._ir = kIr_Else },
     { ._id = "then", ._ir = kIr_Then },

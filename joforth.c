@@ -530,6 +530,8 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
     // =====================================================================================
     // phase 1: convert the input text to a stream of IR codes    
     // count words
+    // =====================================================================================
+
     size_t word_count = 0;
     do {
         // first check for language keywords
@@ -607,6 +609,8 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
 
     // =====================================================================================
     // phase 2: interpret or compile
+    // =====================================================================================
+
     _joforth_word_details_t* details = 0;
     size_t irr = 0;
 
@@ -634,7 +638,22 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
     while (!_ir_buffer_is_empty(&irbuffer)) {
 
         _joforth_ir_t ir = _ir_consume(&irbuffer);
+
         switch (ir) {
+        case kIr_True:
+        {
+            if (mode != kEvalMode_Skipping) {
+                joforth_push_value(joforth, JOFORTH_TRUE);
+            }
+        }
+        break;
+        case kIr_False:
+        {
+            if (mode != kEvalMode_Skipping) {
+                joforth_push_value(joforth, JOFORTH_FALSE);
+            }
+        }
+        break;
         case kIr_If:
         {
             //TODO: COMPILE
@@ -668,26 +687,33 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
         break;
         case kIr_Dot:
         {
-            const char* str = (const char*)joforth_pop_value(joforth);
-            printf(str);
+            if (mode != kEvalMode_Skipping) {
+                const char* str = (const char*)joforth_pop_value(joforth);
+                printf(str);
+            }
         }
         break;
         case kIr_ValuePtr:
         {
-            //TODO: compiling...?
-            joforth_push_value(joforth, (joforth_value_t)_ir_consume_ptr(&irbuffer));
+            joforth_value_t value = (joforth_value_t)_ir_consume_ptr(&irbuffer);
+            if (mode != kEvalMode_Skipping) {
+                //TODO: compiling...?
+                joforth_push_value(joforth, value);
+            }
         }
         break;
         case kIr_Value:
         {
             joforth_value_t value = _ir_consume_value(&irbuffer);
-            if (mode == kEvalMode_Compiling) {
-                // a number; we add this to the word sequence as an immediate value
-                details->_type = kWordType_Value;
-                details->_rep._value = value;
-            }
-            else {
-                joforth_push_value(joforth, value);
+            if (mode != kEvalMode_Skipping) {
+                if (mode == kEvalMode_Compiling) {
+                    // a number; we add this to the word sequence as an immediate value
+                    details->_type = kWordType_Value;
+                    details->_rep._value = value;
+                }
+                else {
+                    joforth_push_value(joforth, value);
+                }
             }
         }
         break;
@@ -707,23 +733,27 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
                     // execute word(s)
                     switch (details->_type & kWordType_TypeMask) {
                     case kWordType_Handler:
-                        // check that the stack has enough variables for this routine to execute
-                        if ((joforth->_stack_size - joforth->_sp - 1) >= details->_depth) {
-                            details->_rep._handler(joforth);
-                            if (_JO_FAILED(joforth->_status)) {
+                        if (mode != kEvalMode_Skipping) {
+                            // check that the stack has enough variables for this routine to execute
+                            if ((joforth->_stack_size - joforth->_sp - 1) >= details->_depth) {
+                                details->_rep._handler(joforth);
+                                if (_JO_FAILED(joforth->_status)) {
+                                    return false;
+                                }
+                            }
+                            else {
+                                joforth->_status = _JO_STATUS_FAILED_PRECONDITION;
                                 return false;
                             }
                         }
-                        else {
-                            joforth->_status = _JO_STATUS_FAILED_PRECONDITION;
-                            return false;
-                        }
                         break;
                     case kWordType_Value:
-                        joforth_push_value(joforth, details->_rep._value);
+                        if (mode != kEvalMode_Skipping) {
+                            joforth_push_value(joforth, details->_rep._value);
+                        }
                         break;
                     case kWordType_Word:
-                    {
+                    {   if (mode != kEvalMode_Skipping) {
                         // return entry on rstack (unless this is the last one)
                         if ((details->_type & kWordType_End) == 0) {
                             _push_rstack(joforth, entry, details + 1);
@@ -733,6 +763,8 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
                         details = details->_rep._word->_details;
                         continue;
                     }
+                    }
+                    break;
                     case kWordType_Prefix:
                     {
                         // first check that we've got enough arguments following this instruction
@@ -749,8 +781,10 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
                             //NOTE: we're not doing any type checking here, if it requires a WordPtr when a ValuePtr 
                             //      is passed then things WILL go wrong...
                             void* ptr = _ir_consume_ptr(&irbuffer);
-                            joforth_push_value(joforth, (joforth_value_t)ptr);
-                            details->_rep._handler(joforth);
+                            if (mode != kEvalMode_Skipping) {
+                                joforth_push_value(joforth, (joforth_value_t)ptr);
+                                details->_rep._handler(joforth);
+                            }
                         }
                         break;
                         default:
@@ -761,18 +795,20 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
                     default:;
                     }
 
-                    if ((details->_type & kWordType_End)) {
-                        if (_rstack_is_empty(joforth)) {
-                            // we're done for now
-                            break;
+                    if (mode != kEvalMode_Skipping) {
+                        if ((details->_type & kWordType_End)) {
+                            if (_rstack_is_empty(joforth)) {
+                                // we're done for now
+                                break;
+                            }
+                            _joforth_rstack_entry_t i = _pop_rstack(joforth);
+                            entry = i._entry;
+                            details = i._details;
+                            continue;
                         }
-                        _joforth_rstack_entry_t i = _pop_rstack(joforth);
-                        entry = i._entry;
-                        details = i._details;
-                        continue;
+                        // next word in multi-word sentence...
+                        ++details;
                     }
-                    // next word in multi-word sentence...
-                    ++details;
                 }
             }
         }
