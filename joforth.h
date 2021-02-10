@@ -4,7 +4,8 @@
 // joForth
 // A very simple, and yet incomplete, Forth interpreter and compiler. 
 // 
-// 
+// http://galileo.phys.virginia.edu/classes/551.jvn.fall01/primer.htm
+//
 
 #include <stdint.h>
 #include <stddef.h>
@@ -33,9 +34,9 @@ typedef enum _joforth_word_type {
     kWordType_TypeMask = 7
 
 } _joforth_word_type_t;
+
 // used internally
 typedef struct _joforth_word_details {
-
     // this is either a single entry or an array of entries terminated with the "kWordType_End" type
     _joforth_word_type_t    _type;
     union {
@@ -78,13 +79,17 @@ typedef struct _joforth_allocator {
     void (*_free)(void*);
 } joforth_allocator_t;
 
+typedef struct _joforth_ir_buffer _joforth_ir_buffer_t;
+
 // the joForth VM state
 typedef struct _joforth {
     _joforth_dict_entry_t       *   _dict;
     joforth_value_t             *   _stack;
     _joforth_rstack_entry_t     *   _rstack;
     uint8_t                     *   _memory;
-    joforth_allocator_t         *   _allocator;
+    _joforth_ir_buffer_t        *   _ir_buffer;
+    joforth_allocator_t             _allocator;
+    
     // current input base
     int                             _base;
     // if 0 then default, in units of joforth_value_t 
@@ -98,12 +103,8 @@ typedef struct _joforth {
     size_t                          _rp;
     // memory allocation pointer (we don't do "free")
     size_t                          _mp;
-
+    // status code of last operation
     jo_status_t                     _status;
-    struct {
-        uint8_t     _zf:1;
-
-    } _flags;
     
 } joforth_t;
 
@@ -115,18 +116,17 @@ void    joforth_destroy(joforth_t* joforth);
 void    joforth_add_word(joforth_t* joforth, const char* word, joforth_word_handler_t handler, size_t depth);
 // evaluate a sequence of words (sentence)
 // for example:
-//  joforth_eval_word(&joforth, ": squared ( a -- a*a ) dup *  ;");
-//  joforth_eval_word(&joforth, "80");
-//  joforth_eval_word(&joforth, "squared");
+//  joforth_eval(&joforth, ": squared ( a -- a*a ) dup *  ;");
+//  joforth_eval(&joforth, "80");
+//  joforth_eval(&joforth, "squared");
 //
-bool    joforth_eval_word(joforth_t* joforth, const char* word);
+bool    joforth_eval(joforth_t* joforth, const char* word);
 
 // push a value on the stack (use this in your handlers)
 // sets the zero flag if the value is 0
 static _JO_ALWAYS_INLINE void    joforth_push_value(joforth_t* joforth, joforth_value_t value) {
     assert(joforth->_sp);
-    joforth->_stack[joforth->_sp--] = value;
-    joforth->_flags._zf = value == 0 ? 1 : 0;
+    joforth->_stack[joforth->_sp--] = value; 
 }
 
 // pop a value off the stack (use this in your handlers)

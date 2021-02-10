@@ -45,3 +45,59 @@ static const _joforth_keyword_lut_entry_t _joforth_keyword_lut[] = {
     { ._id = "loop", ._ir = kIr_Loop },
 };
 static const size_t _joforth_keyword_lut_size = sizeof(_joforth_keyword_lut)/sizeof(_joforth_keyword_lut_entry_t);
+
+typedef struct _joforth_ir_buffer {
+
+    uint8_t   *     _buffer;
+    size_t          _size;
+    size_t          _irw;
+    size_t          _irr;
+
+} _joforth_ir_buffer_t;
+
+static _JO_ALWAYS_INLINE void _ir_emit(_joforth_ir_buffer_t* buffer, _joforth_ir_t ir) {
+    assert(buffer->_irw < buffer->_size);
+    buffer->_buffer[buffer->_irw++] = (uint8_t)(ir & 0xff);
+}
+
+static _JO_ALWAYS_INLINE void _ir_emit_ptr(_joforth_ir_buffer_t* buffer, void* ptr) {
+    assert(buffer->_irw <= (buffer->_size - sizeof(void*)));
+    memcpy(buffer->_buffer + buffer->_irw, &ptr, sizeof(void*));
+    buffer->_irw += sizeof(void*);
+}
+
+static _JO_ALWAYS_INLINE void _ir_emit_value(_joforth_ir_buffer_t* buffer, joforth_value_t value) {
+    assert(buffer->_irw <= (buffer->_size - sizeof(value)));
+    memcpy(buffer->_buffer + buffer->_irw, &value, sizeof(value));
+    buffer->_irw += sizeof(value);
+}
+
+static _JO_ALWAYS_INLINE _joforth_ir_t _ir_peek(_joforth_ir_buffer_t* buffer) {
+    assert(buffer->_irr < buffer->_irw);
+    return (_joforth_ir_t)buffer->_buffer[buffer->_irr];
+}
+
+static _JO_ALWAYS_INLINE _joforth_ir_t _ir_consume(_joforth_ir_buffer_t* buffer) {
+    assert(buffer->_irr < buffer->_irw);
+    return (_joforth_ir_t)buffer->_buffer[buffer->_irr++];
+}
+
+static _JO_ALWAYS_INLINE void* _ir_consume_ptr(_joforth_ir_buffer_t* buffer) {
+    assert(buffer->_irr <= (buffer->_irw - sizeof(void*)));
+    void* ptr;
+    memcpy(&ptr, buffer->_buffer + buffer->_irr, sizeof(void*));
+    buffer->_irr += sizeof(void*);
+    return ptr;
+}
+
+static _JO_ALWAYS_INLINE joforth_value_t _ir_consume_value(_joforth_ir_buffer_t* buffer) {
+    assert(buffer->_irr <= (buffer->_irw - sizeof(joforth_value_t)));
+    joforth_value_t value;
+    memcpy(&value, buffer->_buffer + buffer->_irr, sizeof(value));
+    buffer->_irr += sizeof(value);
+    return value;
+}
+
+static _JO_ALWAYS_INLINE bool _ir_buffer_is_empty(_joforth_ir_buffer_t* buffer) {
+    return buffer->_irr == buffer->_irw;
+}

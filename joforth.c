@@ -2,7 +2,7 @@
 #include "joforth.h"
 #include "joforth_ir.h"
 #include <errno.h>
-#include <string.h>
+#include <stdlib.h>
 
 #include <stdio.h>
 
@@ -39,7 +39,7 @@ static _joforth_dict_entry_t* _add_entry(joforth_t* joforth, const char* word) {
         i = i->_next;
     }
 
-    i->_next = (_joforth_dict_entry_t*)joforth->_allocator->_alloc(sizeof(_joforth_dict_entry_t));
+    i->_next = (_joforth_dict_entry_t*)joforth->_allocator._alloc(sizeof(_joforth_dict_entry_t));
     memset(i->_next, 0, sizeof(_joforth_dict_entry_t));
     i->_key = key;
     i->_word = word; //<ZZZ: this *should* be copied, not stored    
@@ -50,7 +50,7 @@ static _joforth_dict_entry_t* _add_entry(joforth_t* joforth, const char* word) {
 static _joforth_dict_entry_t* _add_word(joforth_t* joforth, const char* word) {
 
     _joforth_dict_entry_t* i = _add_entry(joforth, word);
-    i->_details = (_joforth_word_details_t*)joforth->_allocator->_alloc(sizeof(_joforth_word_details_t));
+    i->_details = (_joforth_word_details_t*)joforth->_allocator._alloc(sizeof(_joforth_word_details_t));
     return i;
 }
 
@@ -215,29 +215,32 @@ void    joforth_initialise(joforth_t* joforth) {
         _t_initialised = true;
     }
 
-    joforth->_stack_size = joforth->_stack_size ? joforth->_stack_size : JOFORTH_DEFAULT_STACK_SIZE;
-    joforth->_stack = (joforth_value_t*)joforth->_allocator->_alloc(joforth->_stack_size * sizeof(joforth_value_t));
-
-    joforth->_rstack_size = joforth->_rstack_size ? joforth->_rstack_size : JOFORTH_DEFAULT_RSTACK_SIZE;
-    joforth->_rstack = (_joforth_rstack_entry_t*)joforth->_allocator->_alloc(joforth->_rstack_size * sizeof(_joforth_rstack_entry_t));
-
-    joforth->_memory_size = joforth->_memory_size ? joforth->_memory_size : JOFORTH_DEFAULT_MEMORY_SIZE;
-    joforth->_memory = (uint8_t*)joforth->_allocator->_alloc(joforth->_memory_size);
-
-    joforth->_dict = (_joforth_dict_entry_t*)joforth->_allocator->_alloc(JOFORTH_DICT_BUCKETS * sizeof(_joforth_dict_entry_t));
-    memset(joforth->_dict, 0, JOFORTH_DICT_BUCKETS * sizeof(_joforth_dict_entry_t));
-
-    // empty stacks
+    joforth->_stack_size = joforth->_stack_size > JOFORTH_DEFAULT_STACK_SIZE ? joforth->_stack_size : JOFORTH_DEFAULT_STACK_SIZE;
+    joforth->_stack = (joforth_value_t*)joforth->_allocator._alloc(joforth->_stack_size * sizeof(joforth_value_t));
     joforth->_sp = joforth->_stack_size - 1;
+
+    joforth->_rstack_size = joforth->_rstack_size > JOFORTH_DEFAULT_RSTACK_SIZE ? joforth->_rstack_size : JOFORTH_DEFAULT_RSTACK_SIZE;
+    joforth->_rstack = (_joforth_rstack_entry_t*)joforth->_allocator._alloc(joforth->_rstack_size * sizeof(_joforth_rstack_entry_t));
     joforth->_rp = joforth->_rstack_size - 1;
-    // full heap
+
+    joforth->_memory_size = joforth->_memory_size > JOFORTH_DEFAULT_MEMORY_SIZE ? joforth->_memory_size : JOFORTH_DEFAULT_MEMORY_SIZE;
+    joforth->_memory = (uint8_t*)joforth->_allocator._alloc(joforth->_memory_size);
     joforth->_mp = 0;
+
+    // set aside some memory for the IR buffer    
+#define JOFORTH_DEFAULT_IRBUFFER_SIZE    1024
+    joforth->_ir_buffer = (_joforth_ir_buffer_t*)_alloc(joforth, JOFORTH_DEFAULT_IRBUFFER_SIZE+sizeof(_joforth_ir_buffer_t));
+    joforth->_ir_buffer->_buffer = joforth->_ir_buffer+1;
+    joforth->_ir_buffer->_size = JOFORTH_DEFAULT_IRBUFFER_SIZE;
+    joforth->_ir_buffer->_irr = joforth->_ir_buffer->_irw = 0;
+    
+    joforth->_dict = (_joforth_dict_entry_t*)joforth->_allocator._alloc(JOFORTH_DICT_BUCKETS * sizeof(_joforth_dict_entry_t));
+    memset(joforth->_dict, 0, JOFORTH_DICT_BUCKETS * sizeof(_joforth_dict_entry_t));
 
     // start with decimal
     joforth->_base = 10;
 
     // all clear
-    memset(&joforth->_flags, 0, sizeof(joforth->_flags));
     joforth->_status = _JO_STATUS_SUCCESS;
 
     // add built-in handlers
@@ -269,9 +272,9 @@ void    joforth_initialise(joforth_t* joforth) {
 }
 
 void    joforth_destroy(joforth_t* joforth) {
-    joforth->_allocator->_free(joforth->_stack);
-    joforth->_allocator->_free(joforth->_rstack);
-    joforth->_allocator->_free(joforth->_memory);
+    joforth->_allocator._free(joforth->_stack);
+    joforth->_allocator._free(joforth->_rstack);
+    joforth->_allocator._free(joforth->_memory);
     if (joforth->_dict) {
         for (size_t i = 0u; i < JOFORTH_DICT_BUCKETS; ++i) {
             _joforth_dict_entry_t* bucket = joforth->_dict + i;
@@ -279,10 +282,10 @@ void    joforth_destroy(joforth_t* joforth) {
             while (bucket) {
                 _joforth_dict_entry_t* j = bucket;
                 bucket = bucket->_next;
-                joforth->_allocator->_free(j);
+                joforth->_allocator._free(j);
             }
         }
-        joforth->_allocator->_free(joforth->_dict);
+        joforth->_allocator._free(joforth->_dict);
     }
     memset(joforth, 0, sizeof(joforth_t));
 }
@@ -427,6 +430,7 @@ static const char* _next_word(joforth_t* joforth, char* buffer, size_t buffer_si
     return word;
 }
 
+// evaluator mode
 typedef enum _joforth_eval_mode {
 
     kEvalMode_Compiling,
@@ -434,61 +438,6 @@ typedef enum _joforth_eval_mode {
     kEvalMode_Skipping,
 
 } _joforth_eval_mode_t;
-
-typedef struct _joforth_ir_buffer {
-
-    uint8_t         _buffer[1024];
-    size_t          _irw;
-    size_t          _irr;
-
-} _joforth_ir_buffer_t;
-
-static _JO_ALWAYS_INLINE void _ir_emit(_joforth_ir_buffer_t* buffer, _joforth_ir_t ir) {
-    assert(buffer->_irw < 1024);
-    buffer->_buffer[buffer->_irw++] = (uint8_t)(ir & 0xff);
-}
-
-static _JO_ALWAYS_INLINE void _ir_emit_ptr(_joforth_ir_buffer_t* buffer, void* ptr) {
-    assert(buffer->_irw <= (1024 - sizeof(void*)));
-    memcpy(buffer->_buffer + buffer->_irw, &ptr, sizeof(void*));
-    buffer->_irw += sizeof(void*);
-}
-
-static _JO_ALWAYS_INLINE void _ir_emit_value(_joforth_ir_buffer_t* buffer, joforth_value_t value) {
-    assert(buffer->_irw <= (1024 - sizeof(value)));
-    memcpy(buffer->_buffer + buffer->_irw, &value, sizeof(value));
-    buffer->_irw += sizeof(value);
-}
-
-static _JO_ALWAYS_INLINE _joforth_ir_t _ir_peek(_joforth_ir_buffer_t* buffer) {
-    assert(buffer->_irr < buffer->_irw);
-    return (_joforth_ir_t)buffer->_buffer[buffer->_irr];
-}
-
-static _JO_ALWAYS_INLINE _joforth_ir_t _ir_consume(_joforth_ir_buffer_t* buffer) {
-    assert(buffer->_irr < buffer->_irw);
-    return (_joforth_ir_t)buffer->_buffer[buffer->_irr++];
-}
-
-static _JO_ALWAYS_INLINE void* _ir_consume_ptr(_joforth_ir_buffer_t* buffer) {
-    assert(buffer->_irr <= (buffer->_irw - sizeof(void*)));
-    void* ptr;
-    memcpy(&ptr, buffer->_buffer + buffer->_irr, sizeof(void*));
-    buffer->_irr += sizeof(void*);
-    return ptr;
-}
-
-static _JO_ALWAYS_INLINE joforth_value_t _ir_consume_value(_joforth_ir_buffer_t* buffer) {
-    assert(buffer->_irr <= (buffer->_irw - sizeof(joforth_value_t)));
-    joforth_value_t value;
-    memcpy(&value, buffer->_buffer + buffer->_irr, sizeof(value));
-    buffer->_irr += sizeof(value);
-    return value;
-}
-
-static _JO_ALWAYS_INLINE bool _ir_buffer_is_empty(_joforth_ir_buffer_t* buffer) {
-    return buffer->_irr == buffer->_irw;
-}
 
 bool    joforth_eval(joforth_t* joforth, const char* word) {
 
@@ -505,11 +454,12 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
 
     char buffer[JOFORTH_MAX_WORD_LENGTH];
     size_t wp;
-    _joforth_ir_buffer_t irbuffer = { ._irr = 0, ._irw = 0 };
+    
+    _joforth_ir_buffer_t*   irbuffer = joforth->_ir_buffer;
 
     if (mode == kEvalMode_Compiling) {
 
-        _ir_emit(&irbuffer, kIr_DefineWord);
+        _ir_emit(irbuffer, kIr_DefineWord);
         // skip ":"
         word++;
         // we expect the identifier to be next
@@ -519,7 +469,7 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
         }
         uint8_t* memory = _alloc(joforth, wp + 1);
         memcpy(memory, buffer, wp + 1);
-        _ir_emit_ptr(&irbuffer, memory);
+        _ir_emit_ptr(irbuffer, memory);
     }
 
     word = _next_word(joforth, buffer, JOFORTH_MAX_WORD_LENGTH, word, &wp);
@@ -538,7 +488,7 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
         bool is_language_keyword = false;
         for (size_t n = 0; n < _joforth_keyword_lut_size; ++n) {
             if (strcmp(buffer, _joforth_keyword_lut[n]._id) == 0) {
-                _ir_emit(&irbuffer, _joforth_keyword_lut[n]._ir);
+                _ir_emit(irbuffer, _joforth_keyword_lut[n]._ir);
                 is_language_keyword = true;
                 break;
             }
@@ -560,9 +510,9 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
                     // emit "dot" and put the allocated string on the value stack 
                     uint8_t* memory = _alloc(joforth, end - start + 1);
                     memcpy(memory, buffer + start, end - start + 1);
-                    _ir_emit(&irbuffer, kIr_ValuePtr);
-                    _ir_emit_ptr(&irbuffer, memory);
-                    _ir_emit(&irbuffer, kIr_Dot);
+                    _ir_emit(irbuffer, kIr_ValuePtr);
+                    _ir_emit_ptr(irbuffer, memory);
+                    _ir_emit(irbuffer, kIr_Dot);
                 }
             }
             else {
@@ -576,12 +526,12 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
                     case kWordType_Prefix:
                     case kWordType_Handler:
                     case kWordType_Word:
-                        _ir_emit(&irbuffer, kIr_WordPtr);
-                        _ir_emit_ptr(&irbuffer, entry);
+                        _ir_emit(irbuffer, kIr_WordPtr);
+                        _ir_emit_ptr(irbuffer, entry);
                         break;
                     case kWordType_Value:
-                        _ir_emit(&irbuffer, kIr_Value);
-                        _ir_emit_value(&irbuffer, details->_rep._value);
+                        _ir_emit(irbuffer, kIr_Value);
+                        _ir_emit_value(irbuffer, details->_rep._value);
                         break;
                     default:;
                     }
@@ -591,13 +541,13 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
                     if (_JO_FAILED(joforth->_status)) {
                         uint8_t* memory = _alloc(joforth, wp + 1);
                         memcpy(memory, buffer, wp + 1);
-                        _ir_emit(&irbuffer, kIr_ValuePtr);
-                        _ir_emit_ptr(&irbuffer, memory);
+                        _ir_emit(irbuffer, kIr_ValuePtr);
+                        _ir_emit_ptr(irbuffer, memory);
                         joforth->_status = _JO_STATUS_SUCCESS;
                     }
                     else {
-                        _ir_emit(&irbuffer, kIr_Value);
-                        _ir_emit_value(&irbuffer, value);
+                        _ir_emit(irbuffer, kIr_Value);
+                        _ir_emit_value(irbuffer, value);
                     }
                 }
             }
@@ -616,8 +566,8 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
 
     // are we interpreting or compiling? if the latter we need a bit of setup
     if (mode == kEvalMode_Compiling) {
-        assert(_ir_consume(&irbuffer) == kIr_DefineWord);
-        const char* id = (const char*)_ir_consume_ptr(&irbuffer);
+        assert(_ir_consume(irbuffer) == kIr_DefineWord);
+        const char* id = (const char*)_ir_consume_ptr(irbuffer);
         joforth_word_key_t key = pearson_hash(id);
         _joforth_dict_entry_t* entry = _find_word(joforth, key);
         if (entry) {
@@ -627,7 +577,7 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
         }
         entry = _add_entry(joforth, id);
         // allocate a array for the sequence of words we need (minus the ; at the end)
-        details = entry->_details = (_joforth_word_details_t*)joforth->_allocator->_alloc((word_count - 1) * sizeof(_joforth_word_details_t));
+        details = entry->_details = (_joforth_word_details_t*)joforth->_allocator._alloc((word_count - 1) * sizeof(_joforth_word_details_t));
     }
 
     //ZZZ:
@@ -635,9 +585,9 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
     size_t msp = 31;
 
     // interpret or compile the contents of the IR buffer
-    while (!_ir_buffer_is_empty(&irbuffer)) {
+    while (!_ir_buffer_is_empty(irbuffer)) {
 
-        _joforth_ir_t ir = _ir_consume(&irbuffer);
+        _joforth_ir_t ir = _ir_consume(irbuffer);
 
         switch (ir) {
         case kIr_True:
@@ -695,7 +645,7 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
         break;
         case kIr_ValuePtr:
         {
-            joforth_value_t value = (joforth_value_t)_ir_consume_ptr(&irbuffer);
+            joforth_value_t value = (joforth_value_t)_ir_consume_ptr(irbuffer);
             if (mode != kEvalMode_Skipping) {
                 //TODO: compiling...?
                 joforth_push_value(joforth, value);
@@ -704,7 +654,7 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
         break;
         case kIr_Value:
         {
-            joforth_value_t value = _ir_consume_value(&irbuffer);
+            joforth_value_t value = _ir_consume_value(irbuffer);
             if (mode != kEvalMode_Skipping) {
                 if (mode == kEvalMode_Compiling) {
                     // a number; we add this to the word sequence as an immediate value
@@ -721,10 +671,10 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
         {
             if (mode == kEvalMode_Compiling) {
                 details->_type = kWordType_Word;
-                details->_rep._word = (_joforth_dict_entry_t*)_ir_consume_ptr(&irbuffer);
+                details->_rep._word = (_joforth_dict_entry_t*)_ir_consume_ptr(irbuffer);
             }
             else {
-                _joforth_dict_entry_t* entry = (_joforth_dict_entry_t*)_ir_consume_ptr(&irbuffer);
+                _joforth_dict_entry_t* entry = (_joforth_dict_entry_t*)_ir_consume_ptr(irbuffer);
                 details = entry->_details;
                 // ========================================================================
                 // execute the words making up the entry until we hit the "kWordType_End" flag
@@ -773,14 +723,14 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
                         assert(details->_depth < 2);
 
                         //ZZZ: this doesn't check softly if we're at the end of the buffer
-                        _joforth_ir_t next_ir = _ir_consume(&irbuffer);
+                        _joforth_ir_t next_ir = _ir_consume(irbuffer);
                         switch (next_ir) {
                         case kIr_WordPtr:
                         case kIr_ValuePtr:
                         {
                             //NOTE: we're not doing any type checking here, if it requires a WordPtr when a ValuePtr 
                             //      is passed then things WILL go wrong...
-                            void* ptr = _ir_consume_ptr(&irbuffer);
+                            void* ptr = _ir_consume_ptr(irbuffer);
                             if (mode != kEvalMode_Skipping) {
                                 joforth_push_value(joforth, (joforth_value_t)ptr);
                                 details->_rep._handler(joforth);
@@ -817,7 +767,7 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
         }
 
         if (mode == kEvalMode_Compiling) {
-            if (_ir_peek(&irbuffer) != kIr_EndDefineWord) {
+            if (_ir_peek(irbuffer) != kIr_EndDefineWord) {
                 // advance details pointer as we're building a word
                 ++details;
             }
@@ -825,7 +775,7 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
                 // terminate this word
                 details->_type |= kWordType_End;
                 // and consume the EndDefineWord IR
-                _ir_consume(&irbuffer);
+                _ir_consume(irbuffer);
             }
         }
     }

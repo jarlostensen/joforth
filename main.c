@@ -68,7 +68,10 @@ int main(int argc, char* argv[]) {
     joforth._stack_size = 0;    
     joforth._rstack_size = 0;
     joforth._memory_size = 0;
-    joforth._allocator = &allocator;
+    joforth._allocator = *(&(joforth_allocator_t){
+        ._alloc = malloc,
+        ._free = free,
+    });
     joforth_initialise(&joforth);
 
     joforth_dump_dict(&joforth);
