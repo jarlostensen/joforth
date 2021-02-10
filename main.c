@@ -30,7 +30,7 @@ void test_define_word(void) {
 }
 
 void test_create_allot(void) {
-    assert(joforth_eval_word(&joforth, "create X 8 cells allot"));
+    assert(joforth_eval(&joforth, "create X 8 cells allot"));
     assert(joforth_eval_word(&joforth, "X"));
     assert(joforth_eval_word(&joforth, "here"));
     joforth_value_t top1 = joforth_pop_value(&joforth);
