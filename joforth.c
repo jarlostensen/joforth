@@ -51,6 +51,7 @@ static _joforth_dict_entry_t* _add_word(joforth_t* joforth, const char* word) {
 
     _joforth_dict_entry_t* i = _add_entry(joforth, word);
     i->_details = (_joforth_word_details_t*)joforth->_allocator._alloc(sizeof(_joforth_word_details_t));
+    i->_details->_depth = 0;
     return i;
 }
 
@@ -60,6 +61,21 @@ static uint8_t* _alloc(joforth_t* joforth, size_t bytes) {
     joforth->_mp += bytes;
     return joforth->_memory + mp;
 }
+
+static _joforth_dict_entry_t* _find_word(joforth_t* joforth, joforth_word_key_t key) {
+    size_t index = key % JOFORTH_DICT_BUCKETS;
+    _joforth_dict_entry_t* i = joforth->_dict + index;
+    while (i != 0) {
+        if (i->_key == key) {
+            return i;
+        }
+        i = i->_next;
+    }
+    return 0;
+}
+
+// ============================================================================
+// native build in words
 
 static void _lt(joforth_t* joforth) {
     //NOTE: NOS < TOS
@@ -178,6 +194,20 @@ static void _allot(joforth_t* joforth) {
     }
 }
 
+static void _see(joforth_t* joforth) {
+    // the stack MUST contain the address of a word name
+    const char* id = (const char*)joforth_pop_value(joforth);
+    joforth_word_key_t key = pearson_hash(id);
+    _joforth_dict_entry_t* entry = _find_word(joforth, key);
+    if (entry) {
+        //TODO: traverse word list
+        printf("\n: %s, takes %zu parameters\n", entry->_word, entry->_details->_depth);
+    }
+    else {
+        printf("\"%s\" is not in the dictionary\n", id);
+    }
+}
+
 static void _cr(joforth_t* joforth) {
     (void)joforth;
     printf("\n");
@@ -185,17 +215,6 @@ static void _cr(joforth_t* joforth) {
 
 // ================================================================
 
-static _joforth_dict_entry_t* _find_word(joforth_t* joforth, joforth_word_key_t key) {
-    size_t index = key % JOFORTH_DICT_BUCKETS;
-    _joforth_dict_entry_t* i = joforth->_dict + index;
-    while (i != 0) {
-        if (i->_key == key) {
-            return i;
-        }
-        i = i->_next;
-    }
-    return 0;
-}
 
 void    joforth_initialise(joforth_t* joforth) {
 
@@ -229,11 +248,11 @@ void    joforth_initialise(joforth_t* joforth) {
 
     // set aside some memory for the IR buffer    
 #define JOFORTH_DEFAULT_IRBUFFER_SIZE    1024
-    joforth->_ir_buffer = (_joforth_ir_buffer_t*)_alloc(joforth, JOFORTH_DEFAULT_IRBUFFER_SIZE+sizeof(_joforth_ir_buffer_t));
-    joforth->_ir_buffer->_buffer = joforth->_ir_buffer+1;
+    joforth->_ir_buffer = (_joforth_ir_buffer_t*)_alloc(joforth, JOFORTH_DEFAULT_IRBUFFER_SIZE + sizeof(_joforth_ir_buffer_t));
+    joforth->_ir_buffer->_buffer = joforth->_ir_buffer + 1;
     joforth->_ir_buffer->_size = JOFORTH_DEFAULT_IRBUFFER_SIZE;
     joforth->_ir_buffer->_irr = joforth->_ir_buffer->_irw = 0;
-    
+
     joforth->_dict = (_joforth_dict_entry_t*)joforth->_allocator._alloc(JOFORTH_DICT_BUCKETS * sizeof(_joforth_dict_entry_t));
     memset(joforth->_dict, 0, JOFORTH_DICT_BUCKETS * sizeof(_joforth_dict_entry_t));
 
@@ -268,6 +287,11 @@ void    joforth_initialise(joforth_t* joforth) {
     _joforth_dict_entry_t* entry = _add_word(joforth, "create");
     entry->_details->_type = kWordType_End | kWordType_Prefix;
     entry->_details->_rep._handler = _create;
+    entry->_details->_depth = 1;
+
+    entry = _add_word(joforth, "see");
+    entry->_details->_type = kWordType_End | kWordType_Prefix;
+    entry->_details->_rep._handler = _see;
     entry->_details->_depth = 1;
 }
 
@@ -454,8 +478,8 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
 
     char buffer[JOFORTH_MAX_WORD_LENGTH];
     size_t wp;
-    
-    _joforth_ir_buffer_t*   irbuffer = joforth->_ir_buffer;
+
+    _joforth_ir_buffer_t* irbuffer = joforth->_ir_buffer;
 
     if (mode == kEvalMode_Compiling) {
 
@@ -483,71 +507,92 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
     // =====================================================================================
 
     size_t word_count = 0;
+    size_t target_word_count = 0;   //< used when we parse prefix words
     do {
-        // first check for language keywords
-        bool is_language_keyword = false;
-        for (size_t n = 0; n < _joforth_keyword_lut_size; ++n) {
-            if (strcmp(buffer, _joforth_keyword_lut[n]._id) == 0) {
-                _ir_emit(irbuffer, _joforth_keyword_lut[n]._ir);
-                is_language_keyword = true;
-                break;
-            }
+
+        if (target_word_count && word_count == target_word_count) {
+            // this word will be passed, as-is, on the stack to feed a previous 
+            // PREFIX word (see kWordType_Prefix)
+            char* the_word = (char*)_alloc(joforth, wp + 1);
+            memcpy(the_word, buffer, wp + 1);
+            _ir_emit(irbuffer, kIr_ValuePtr);
+            _ir_emit_ptr(irbuffer, the_word);
+            target_word_count = 0;
         }
-
-        if (!is_language_keyword) {
-            // then check for very special ."string" syntax (which gets here as a single word)
-            if (wp > 1 && buffer[0] == '.') {
-                // print a string
-                size_t start = 1;
-                size_t end = 2;
-                if (buffer[start] == '\"') {
-                    start = 2;
-                    end = 3;
-                }
-                while (buffer[end] && buffer[end] != '\"') ++end;
-                buffer[end] = 0;
-                if (start < end) {
-                    // emit "dot" and put the allocated string on the value stack 
-                    uint8_t* memory = _alloc(joforth, end - start + 1);
-                    memcpy(memory, buffer + start, end - start + 1);
-                    _ir_emit(irbuffer, kIr_ValuePtr);
-                    _ir_emit_ptr(irbuffer, memory);
-                    _ir_emit(irbuffer, kIr_Dot);
+        else {
+            // first check for language keywords
+            bool is_language_keyword = false;
+            for (size_t n = 0; n < _joforth_keyword_lut_size; ++n) {
+                if (strcmp(buffer, _joforth_keyword_lut[n]._id) == 0) {
+                    _ir_emit(irbuffer, _joforth_keyword_lut[n]._ir);
+                    is_language_keyword = true;
+                    break;
                 }
             }
-            else {
-                joforth_word_key_t key = pearson_hash(buffer);
-                _joforth_dict_entry_t* entry = _find_word(joforth, key);
 
-                if (entry) {
-                    _joforth_word_details_t* details = entry->_details;
-
-                    switch (details->_type & kWordType_TypeMask) {
-                    case kWordType_Prefix:
-                    case kWordType_Handler:
-                    case kWordType_Word:
-                        _ir_emit(irbuffer, kIr_WordPtr);
-                        _ir_emit_ptr(irbuffer, entry);
-                        break;
-                    case kWordType_Value:
-                        _ir_emit(irbuffer, kIr_Value);
-                        _ir_emit_value(irbuffer, details->_rep._value);
-                        break;
-                    default:;
+            if (!is_language_keyword) {
+                // then check for very special ."string" syntax (which gets here as a single word)
+                if (wp > 1 && buffer[0] == '.') {
+                    // print a string
+                    size_t start = 1;
+                    size_t end = 2;
+                    if (buffer[start] == '\"') {
+                        start = 2;
+                        end = 3;
+                    }
+                    while (buffer[end] && buffer[end] != '\"') ++end;
+                    buffer[end] = 0;
+                    if (start < end) {
+                        // emit "dot" and put the allocated string on the value stack 
+                        uint8_t* memory = _alloc(joforth, end - start + 1);
+                        memcpy(memory, buffer + start, end - start + 1);
+                        _ir_emit(irbuffer, kIr_ValuePtr);
+                        _ir_emit_ptr(irbuffer, memory);
+                        _ir_emit(irbuffer, kIr_Dot);
                     }
                 }
                 else {
-                    joforth_value_t value = _str_to_value(joforth, buffer);
-                    if (_JO_FAILED(joforth->_status)) {
-                        uint8_t* memory = _alloc(joforth, wp + 1);
-                        memcpy(memory, buffer, wp + 1);
-                        _ir_emit(irbuffer, kIr_ValuePtr);
-                        _ir_emit_ptr(irbuffer, memory);
-                        joforth->_status = _JO_STATUS_SUCCESS;
+                    joforth_word_key_t key = pearson_hash(buffer);
+                    _joforth_dict_entry_t* entry = _find_word(joforth, key);
+
+                    if (entry) {
+                        _joforth_word_details_t* details = entry->_details;
+
+                        switch (details->_type & kWordType_TypeMask) {
+                        case kWordType_Prefix:
+                        {
+                            assert(entry->_details->_depth < 2);
+                            _ir_emit(irbuffer, kIr_WordPtr);
+                            _ir_emit_ptr(irbuffer, entry);
+                            // this word + param count
+                            target_word_count = word_count + entry->_details->_depth;
+                        }
+                        break;
+                        case kWordType_Handler:
+                        case kWordType_Word:
+                            _ir_emit(irbuffer, kIr_WordPtr);
+                            _ir_emit_ptr(irbuffer, entry);
+                            break;
+                        case kWordType_Value:
+                            _ir_emit(irbuffer, kIr_Value);
+                            _ir_emit_value(irbuffer, details->_rep._value);
+                            break;
+                        default:;
+                        }
                     }
                     else {
-                        _ir_emit(irbuffer, kIr_Value);
-                        _ir_emit_value(irbuffer, value);
+                        joforth_value_t value = _str_to_value(joforth, buffer);
+                        if (_JO_FAILED(joforth->_status)) {
+                            uint8_t* memory = _alloc(joforth, wp + 1);
+                            memcpy(memory, buffer, wp + 1);
+                            _ir_emit(irbuffer, kIr_ValuePtr);
+                            _ir_emit_ptr(irbuffer, memory);
+                            joforth->_status = _JO_STATUS_SUCCESS;
+                        }
+                        else {
+                            _ir_emit(irbuffer, kIr_Value);
+                            _ir_emit_value(irbuffer, value);
+                        }
                     }
                 }
             }
@@ -578,6 +623,7 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
         entry = _add_entry(joforth, id);
         // allocate a array for the sequence of words we need (minus the ; at the end)
         details = entry->_details = (_joforth_word_details_t*)joforth->_allocator._alloc((word_count - 1) * sizeof(_joforth_word_details_t));
+        details->_depth = 0;
     }
 
     //ZZZ:

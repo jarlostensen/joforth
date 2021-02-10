@@ -27,6 +27,7 @@ void test_define_word(void) {
     assert(joforth_eval(&joforth, "80"));
     assert(joforth_eval(&joforth, "squared"));
     assert(joforth_top_value(&joforth)==6400);
+    assert(joforth_eval(&joforth, "see squared"));
 }
 
 void test_create_allot(void) {
@@ -53,7 +54,7 @@ void test_comparison(void) {
 }
 
 void test_ifthenelse(void) {
-    assert(joforth_eval(&joforth, ".if-then-else 0 0 =  IF  TRUE  ELSE  FALSE  THEN cr"));
+    assert(joforth_eval(&joforth, ".if-then-else 0 0 =  IF  TRUE  ELSE  .WRONG FALSE  THEN cr"));
     joforth_value_t tos = joforth_pop_value(&joforth);
     assert(tos == JOFORTH_TRUE);
 }
@@ -78,15 +79,14 @@ int main(int argc, char* argv[]) {
     printf("\n");
     
     assert(joforth_eval(&joforth, ".\"running tests..\" cr"));
+    test_define_word();
     test_ifthenelse();
     test_dec_hex();
     test_create_allot();
     test_incorrect_number();
     test_comparison();
-    test_define_word();
-
+    
     printf(" bye\n");
     joforth_dump_stack(&joforth);
-
     joforth_destroy(&joforth);
 }

@@ -40,13 +40,14 @@ typedef struct _joforth_word_details {
     // this is either a single entry or an array of entries terminated with the "kWordType_End" type
     _joforth_word_type_t    _type;
     union {
-        // a concrete word that already exists in the dictionary
+        // a native callable function 
         joforth_word_handler_t              _handler;
         // a value to push on the stack during execution
         joforth_value_t                     _value;
-        // a dictonary entry; i.e. a call to another word
+        // a dictonary entry; i.e. a call to another word (which contains one or more of these)
         _joforth_dict_entry_t  *            _word;
     } _rep;
+    // value stack depth required (i.e. number of arguments to word)
     size_t                                  _depth;
 
 } _joforth_word_details_t;
