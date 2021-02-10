@@ -542,60 +542,64 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
             }
         }
 
-        // then check for very special ."string" syntax (which gets here as a single word)
-        if (wp > 1 && buffer[0] == '.') {
-            // print a string
-            size_t start = 1;
-            size_t end = 2;
-            if (buffer[start] == '\"') {
-                start = 2;
-                end = 3;
-            }
-            while (buffer[end] && buffer[end] != '\"') ++end;
-            buffer[end] = 0;
-            if (start < end) {
-                // print it out immediately
-                printf(buffer + start);
-            }
-        }
-
         if (!is_language_keyword) {
-            joforth_word_key_t key = pearson_hash(buffer);
-            _joforth_dict_entry_t* entry = _find_word(joforth, key);
-
-            if (entry) {
-                _joforth_word_details_t* details = entry->_details;
-
-                switch (details->_type & kWordType_TypeMask) {
-                case kWordType_Prefix:
-                case kWordType_Handler:
-                case kWordType_Word:
-                    _ir_emit(&irbuffer, kIr_WordPtr);
-                    _ir_emit_ptr(&irbuffer, entry);
-                    break;
-                case kWordType_Value:
-                    _ir_emit(&irbuffer, kIr_Value);
-                    _ir_emit_value(&irbuffer, details->_rep._value);
-                    break;
-                default:;
+            // then check for very special ."string" syntax (which gets here as a single word)
+            if (wp > 1 && buffer[0] == '.') {
+                // print a string
+                size_t start = 1;
+                size_t end = 2;
+                if (buffer[start] == '\"') {
+                    start = 2;
+                    end = 3;
+                }
+                while (buffer[end] && buffer[end] != '\"') ++end;
+                buffer[end] = 0;
+                if (start < end) {
+                    // emit "dot" and put the allocated string on the value stack 
+                    uint8_t* memory = _alloc(joforth, end - start + 1);
+                    memcpy(memory, buffer + start, end - start + 1);
+                    _ir_emit(&irbuffer, kIr_ValuePtr);
+                    _ir_emit_ptr(&irbuffer, memory);
+                    _ir_emit(&irbuffer, kIr_Dot);
                 }
             }
             else {
-                joforth_value_t value = _str_to_value(joforth, buffer);
-                if (_JO_FAILED(joforth->_status)) {
-                    uint8_t* memory = _alloc(joforth, wp + 1);
-                    memcpy(memory, buffer, wp + 1);
-                    _ir_emit(&irbuffer, kIr_ValuePtr);
-                    _ir_emit_ptr(&irbuffer, memory);
-                    joforth->_status = _JO_STATUS_SUCCESS;
+                joforth_word_key_t key = pearson_hash(buffer);
+                _joforth_dict_entry_t* entry = _find_word(joforth, key);
+
+                if (entry) {
+                    _joforth_word_details_t* details = entry->_details;
+
+                    switch (details->_type & kWordType_TypeMask) {
+                    case kWordType_Prefix:
+                    case kWordType_Handler:
+                    case kWordType_Word:
+                        _ir_emit(&irbuffer, kIr_WordPtr);
+                        _ir_emit_ptr(&irbuffer, entry);
+                        break;
+                    case kWordType_Value:
+                        _ir_emit(&irbuffer, kIr_Value);
+                        _ir_emit_value(&irbuffer, details->_rep._value);
+                        break;
+                    default:;
+                    }
                 }
                 else {
-                    _ir_emit(&irbuffer, kIr_Value);
-                    _ir_emit_value(&irbuffer, value);
+                    joforth_value_t value = _str_to_value(joforth, buffer);
+                    if (_JO_FAILED(joforth->_status)) {
+                        uint8_t* memory = _alloc(joforth, wp + 1);
+                        memcpy(memory, buffer, wp + 1);
+                        _ir_emit(&irbuffer, kIr_ValuePtr);
+                        _ir_emit_ptr(&irbuffer, memory);
+                        joforth->_status = _JO_STATUS_SUCCESS;
+                    }
+                    else {
+                        _ir_emit(&irbuffer, kIr_Value);
+                        _ir_emit_value(&irbuffer, value);
+                    }
                 }
             }
         }
-
         ++word_count;
         word = _next_word(joforth, buffer, JOFORTH_MAX_WORD_LENGTH, word, &wp);
 
@@ -622,11 +626,52 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
         details = entry->_details = (_joforth_word_details_t*)joforth->_allocator->_alloc((word_count - 1) * sizeof(_joforth_word_details_t));
     }
 
+    //ZZZ:
+    _joforth_eval_mode_t mode_stack[32];
+    size_t msp = 31;
+
     // interpret or compile the contents of the IR buffer
     while (!_ir_buffer_is_empty(&irbuffer)) {
 
         _joforth_ir_t ir = _ir_consume(&irbuffer);
         switch (ir) {
+        case kIr_If:
+        {
+            //TODO: COMPILE
+
+            // decide what to do based on TOS
+            joforth_value_t tos = joforth_pop_value(joforth);
+            if (tos == JOFORTH_FALSE) {
+                // skip until ELSE
+                mode = kEvalMode_Skipping;
+                // we'll switch back to interpreting later
+                mode_stack[msp--] = kEvalMode_Interpreting;
+            }
+            else {
+                // else we continue as if nothing happened until we hit ELSE...
+                mode_stack[msp--] = kEvalMode_Skipping;
+            }
+        }
+        break;
+        case kIr_Else:
+        {
+            // switch to the mode selected by the last IF and continue
+            mode = mode_stack[++msp];
+        }
+        break;
+        case kIr_Then:
+        {
+            //TODO: COMPILING
+            // switch back to interpreting
+            mode = kEvalMode_Interpreting;
+        }
+        break;
+        case kIr_Dot:
+        {
+            const char* str = (const char*)joforth_pop_value(joforth);
+            printf(str);
+        }
+        break;
         case kIr_ValuePtr:
         {
             //TODO: compiling...?

@@ -73,6 +73,7 @@ int main(int argc, char* argv[]) {
     printf("\n");
     
     assert(joforth_eval(&joforth, ".\"running tests..\" cr"));
+    test_ifthenelse();
     test_dec_hex();
     test_create_allot();
     test_incorrect_number();
