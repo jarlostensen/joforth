@@ -30,6 +30,12 @@ void test_define_word(void) {
     assert(joforth_eval(&joforth, "see squared"));
 }
 
+void test_recurse_statement(void) {
+    assert(joforth_eval(&joforth, ": GCD    ( a b -- gcd)  ?DUP  IF  TUCK  MOD  recurse ENDIF ;"));
+    assert(joforth_eval(&joforth, "784 48 gcd"));
+    assert(joforth_pop_value(&joforth) == 16);
+}
+
 void test_create_allot(void) {
     assert(joforth_eval(&joforth, "create X 8 cells allot"));
     assert(joforth_eval(&joforth, "X"));
@@ -50,7 +56,7 @@ void test_comparison(void) {
     assert(joforth_eval(&joforth, "2 3 <"));
     assert(joforth_pop_value(&joforth)==JOFORTH_TRUE);
     assert(joforth_eval(&joforth, "3 3 ="));
-    assert(joforth_pop_value(&joforth)==JOFORTH_TRUE);
+    assert(joforth_pop_value(&joforth)==JOFORTH_TRUE);    
 }
 
 void test_ifthenelse(void) {
@@ -58,8 +64,38 @@ void test_ifthenelse(void) {
     joforth_value_t tos = joforth_pop_value(&joforth);
     assert(tos == JOFORTH_FALSE);
     assert(joforth_eval(&joforth, ": TEST     0 =  INVERT  IF   CR   .\"Not zero!\"   ENDIF  ;"));
-    assert(joforth_eval(&joforth, "0 TEST"));
-    assert(joforth_eval(&joforth, "-14 TEST"));
+    assert(joforth_eval(&joforth, ".0 0 TEST cr"));
+    assert(joforth_eval(&joforth, ".-14 -14 TEST cr"));
+}
+
+void test_arithmetic(void) {
+    assert(joforth_eval(&joforth, "3 7 mod"));
+    assert(joforth_pop_value(&joforth)==3);
+    assert(joforth_eval(&joforth, "7 3 mod"));
+    assert(joforth_pop_value(&joforth)==1);
+}
+
+void test_stack_ops(void) {
+    assert(joforth_eval(&joforth, "2 drop"));
+    assert(joforth_stack_is_empty(&joforth));
+    assert(joforth_eval(&joforth, "73 -16 swap"));
+    joforth_value_t tos = joforth_pop_value(&joforth);
+    joforth_value_t nos = joforth_pop_value(&joforth);
+    assert(tos == 73 && nos == -16);
+    assert(joforth_eval(&joforth, "73 -16 tuck"));
+    tos = joforth_pop_value(&joforth);
+    nos = joforth_pop_value(&joforth);
+    joforth_value_t nnos = joforth_pop_value(&joforth);
+    assert(tos == -16 && nos == 73 && nnos == -16);
+    assert(joforth_eval(&joforth, "0 ?dup"));
+    tos = joforth_pop_value(&joforth);
+    assert(tos==0);
+    assert(joforth_stack_is_empty(&joforth));
+    assert(joforth_eval(&joforth, "1 ?dup"));
+    tos = joforth_pop_value(&joforth);
+    assert(tos==1);
+    assert(!joforth_stack_is_empty(&joforth));
+    joforth_pop_value(&joforth);
 }
 
 int main(int argc, char* argv[]) {
@@ -82,12 +118,15 @@ int main(int argc, char* argv[]) {
     printf("\n");
     
     assert(joforth_eval(&joforth, ".\"running tests..\" cr"));
+    test_stack_ops();
     test_define_word();
     test_ifthenelse();
     test_dec_hex();
     test_create_allot();
     test_incorrect_number();
     test_comparison();
+    test_arithmetic();
+    test_recurse_statement();
     
     printf(" bye\n");
     joforth_dump_stack(&joforth);

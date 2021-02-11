@@ -131,6 +131,10 @@ static _JO_ALWAYS_INLINE joforth_value_t    joforth_top_value(joforth_t* joforth
     return joforth->_stack[joforth->_sp+1];
 }
 
+static _JO_ALWAYS_INLINE joforth_value_t    joforth_stack_is_empty(joforth_t* joforth) {
+    return joforth->_sp == joforth->_stack_size-1;
+}
+
 // printf dictionary contents
 void    joforth_dump_dict(joforth_t* joforth);
 // dump current stack

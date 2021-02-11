@@ -12,6 +12,7 @@ typedef enum _joforth_ir {
     kIr_ValuePtr,                // followed by 64 bit pointer to a 0 terminated string
     kIr_Value,                   // followed by a 64 bit immediate value
     kIr_Native,                  // followed by 64 bit pointer to native handler routine
+    kIr_IfZeroOperator,          // ? prefix to words, like "?dup"
     kIr_If,
     kIr_Else,
     kIr_Endif,
