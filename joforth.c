@@ -47,14 +47,6 @@ static _joforth_dict_entry_t* _add_entry(joforth_t* joforth, const char* word) {
     return i;
 }
 
-static _joforth_dict_entry_t* _add_word(joforth_t* joforth, const char* word) {
-
-    _joforth_dict_entry_t* i = _add_entry(joforth, word);
-    i->_details = (_joforth_word_details_t*)joforth->_allocator._alloc(sizeof(_joforth_word_details_t));
-    i->_details->_depth = 0;
-    return i;
-}
-
 static uint8_t* _alloc(joforth_t* joforth, size_t bytes) {
     assert(joforth->_mp < (joforth->_memory_size - bytes));
     size_t mp = joforth->_mp;
@@ -160,11 +152,11 @@ static void _create(joforth_t* joforth) {
     // the stack MUST contain the address of the name of a new word we'll create
     char* ptr = (char*)joforth_pop_value(joforth);
     // here goes nothing...
-    _joforth_dict_entry_t* entry = _add_word(joforth, ptr);
+    _joforth_dict_entry_t* entry = _add_entry(joforth, ptr);
     if (entry) {
-        entry->_details->_type = kWordType_End | kWordType_Value;
+        entry->_type = kEntryType_Value;
         // next available memory slot, at the time we're creating
-        entry->_details->_rep._value = (joforth_value_t)joforth->_mp;
+        entry->_rep._value = (joforth_value_t)joforth->_mp;
     }
     else {
         joforth->_status = _JO_STATUS_INVALID_INPUT;
@@ -201,7 +193,7 @@ static void _see(joforth_t* joforth) {
     _joforth_dict_entry_t* entry = _find_word(joforth, key);
     if (entry) {
         //TODO: traverse word list
-        printf("\n: %s, takes %zu parameters\n", entry->_word, entry->_details->_depth);
+        printf("\n: %s, takes %zu parameters\n", entry->_word, entry->_depth);
     }
     else {
         printf("\"%s\" is not in the dictionary\n", id);
@@ -238,20 +230,21 @@ void    joforth_initialise(joforth_t* joforth) {
     joforth->_stack = (joforth_value_t*)joforth->_allocator._alloc(joforth->_stack_size * sizeof(joforth_value_t));
     joforth->_sp = joforth->_stack_size - 1;
 
-    joforth->_rstack_size = joforth->_rstack_size > JOFORTH_DEFAULT_RSTACK_SIZE ? joforth->_rstack_size : JOFORTH_DEFAULT_RSTACK_SIZE;
-    joforth->_rstack = (_joforth_rstack_entry_t*)joforth->_allocator._alloc(joforth->_rstack_size * sizeof(_joforth_rstack_entry_t));
-    joforth->_rp = joforth->_rstack_size - 1;
-
     joforth->_memory_size = joforth->_memory_size > JOFORTH_DEFAULT_MEMORY_SIZE ? joforth->_memory_size : JOFORTH_DEFAULT_MEMORY_SIZE;
     joforth->_memory = (uint8_t*)joforth->_allocator._alloc(joforth->_memory_size);
     joforth->_mp = 0;
 
     // set aside some memory for the IR buffer    
 #define JOFORTH_DEFAULT_IRBUFFER_SIZE    1024
-    joforth->_ir_buffer = (_joforth_ir_buffer_t*)_alloc(joforth, JOFORTH_DEFAULT_IRBUFFER_SIZE + sizeof(_joforth_ir_buffer_t));
-    joforth->_ir_buffer->_buffer = joforth->_ir_buffer + 1;
-    joforth->_ir_buffer->_size = JOFORTH_DEFAULT_IRBUFFER_SIZE;
-    joforth->_ir_buffer->_irr = joforth->_ir_buffer->_irw = 0;
+    joforth->_ir_buffer = (uint8_t*)_alloc(joforth, JOFORTH_DEFAULT_IRBUFFER_SIZE);
+    joforth->_ir_buffer_size = JOFORTH_DEFAULT_IRBUFFER_SIZE;
+    joforth->_irw = 0;
+
+    //NOTE: this determines the nesting level
+#define JOFORTH_DEFAULT_IRSTACK_SIZE    256
+    joforth->_irstack = (uint8_t**)_alloc(joforth, JOFORTH_DEFAULT_IRSTACK_SIZE * sizeof(void*));
+    joforth->_irstack_size = JOFORTH_DEFAULT_IRSTACK_SIZE;
+    joforth->_irp = joforth->_irstack_size - 1;
 
     joforth->_dict = (_joforth_dict_entry_t*)joforth->_allocator._alloc(JOFORTH_DICT_BUCKETS * sizeof(_joforth_dict_entry_t));
     memset(joforth->_dict, 0, JOFORTH_DICT_BUCKETS * sizeof(_joforth_dict_entry_t));
@@ -284,20 +277,19 @@ void    joforth_initialise(joforth_t* joforth) {
     joforth_add_word(joforth, "cr", _cr, 0);
 
     // add special words
-    _joforth_dict_entry_t* entry = _add_word(joforth, "create");
-    entry->_details->_type = kWordType_End | kWordType_Prefix;
-    entry->_details->_rep._handler = _create;
-    entry->_details->_depth = 1;
+    _joforth_dict_entry_t* entry = _add_entry(joforth, "create");
+    entry->_type = kEntryType_Prefix;
+    entry->_rep._handler = _create;
+    entry->_depth = 1;
 
-    entry = _add_word(joforth, "see");
-    entry->_details->_type = kWordType_End | kWordType_Prefix;
-    entry->_details->_rep._handler = _see;
-    entry->_details->_depth = 1;
+    entry = _add_entry(joforth, "see");
+    entry->_type = kEntryType_Prefix;
+    entry->_rep._handler = _see;
+    entry->_depth = 1;
 }
 
 void    joforth_destroy(joforth_t* joforth) {
     joforth->_allocator._free(joforth->_stack);
-    joforth->_allocator._free(joforth->_rstack);
     joforth->_allocator._free(joforth->_memory);
     if (joforth->_dict) {
         for (size_t i = 0u; i < JOFORTH_DICT_BUCKETS; ++i) {
@@ -316,28 +308,27 @@ void    joforth_destroy(joforth_t* joforth) {
 
 void    joforth_add_word(joforth_t* joforth, const char* word, joforth_word_handler_t handler, size_t depth) {
 
-    _joforth_dict_entry_t* i = _add_word(joforth, word);
-    i->_details->_depth = depth;
-    i->_details->_type = kWordType_Handler | kWordType_End;
-    i->_details->_rep._handler = handler;
+    _joforth_dict_entry_t* i = _add_entry(joforth, word);
+    i->_depth = depth;
+    i->_type = kEntryType_Native;
+    i->_rep._handler = handler;
 
     //printf("\nadded word \"%s\", key = 0x%x\n", i->_word, i->_key);
 }
 
-
-static _JO_ALWAYS_INLINE void _push_rstack(joforth_t* joforth, _joforth_dict_entry_t* entry, _joforth_word_details_t* details) {
-    assert(joforth->_rp);
-    _joforth_rstack_entry_t item = { ._entry = entry, ._details = details };
-    joforth->_rstack[joforth->_rp--] = item;
+//REFACTOR
+static _JO_ALWAYS_INLINE void _push_irstack(joforth_t* joforth, uint8_t* loc) {
+    assert(joforth->_irp);
+    joforth->_irstack[joforth->_irp--] = loc;
 }
 
-static _JO_ALWAYS_INLINE _joforth_rstack_entry_t _pop_rstack(joforth_t* joforth) {
-    assert(joforth->_rp < joforth->_rstack_size - 1);
-    return joforth->_rstack[++joforth->_rp];
+static _JO_ALWAYS_INLINE uint8_t* _pop_irstack(joforth_t* joforth) {
+    assert(joforth->_irp < joforth->_irstack_size - 1);
+    return joforth->_irstack[++joforth->_irp];
 }
 
-static _JO_ALWAYS_INLINE bool _rstack_is_empty(joforth_t* joforth) {
-    return joforth->_rp == joforth->_rstack_size - 1;
+static _JO_ALWAYS_INLINE bool _irstack_is_empty(joforth_t* joforth) {
+    return joforth->_irp == joforth->_irstack_size - 1;
 }
 
 static joforth_value_t  _str_to_value(joforth_t* joforth, const char* str) {
@@ -478,12 +469,12 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
 
     char buffer[JOFORTH_MAX_WORD_LENGTH];
     size_t wp;
-
-    _joforth_ir_buffer_t* irbuffer = joforth->_ir_buffer;
+    // reset!
+    joforth->_irw = 0;
 
     if (mode == kEvalMode_Compiling) {
 
-        _ir_emit(irbuffer, kIr_DefineWord);
+        _ir_emit(joforth, kIr_DefineWord);
         // skip ":"
         word++;
         // we expect the identifier to be next
@@ -493,7 +484,7 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
         }
         uint8_t* memory = _alloc(joforth, wp + 1);
         memcpy(memory, buffer, wp + 1);
-        _ir_emit_ptr(irbuffer, memory);
+        _ir_emit_ptr(joforth, memory);
     }
 
     word = _next_word(joforth, buffer, JOFORTH_MAX_WORD_LENGTH, word, &wp);
@@ -510,21 +501,21 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
     size_t target_word_count = 0;   //< used when we parse prefix words
     do {
 
-        if (target_word_count && word_count == target_word_count) {
+        if (target_word_count && word_count >= target_word_count) {
             // this word will be passed, as-is, on the stack to feed a previous 
             // PREFIX word (see kWordType_Prefix)
             char* the_word = (char*)_alloc(joforth, wp + 1);
             memcpy(the_word, buffer, wp + 1);
-            _ir_emit(irbuffer, kIr_ValuePtr);
-            _ir_emit_ptr(irbuffer, the_word);
-            target_word_count = 0;
+            _ir_emit(joforth, kIr_ValuePtr);
+            _ir_emit_ptr(joforth, the_word);
+            target_word_count = word_count > target_word_count ? target_word_count : 0;
         }
         else {
             // first check for language keywords
             bool is_language_keyword = false;
             for (size_t n = 0; n < _joforth_keyword_lut_size; ++n) {
                 if (strcmp(buffer, _joforth_keyword_lut[n]._id) == 0) {
-                    _ir_emit(irbuffer, _joforth_keyword_lut[n]._ir);
+                    _ir_emit(joforth, _joforth_keyword_lut[n]._ir);
                     is_language_keyword = true;
                     break;
                 }
@@ -546,9 +537,9 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
                         // emit "dot" and put the allocated string on the value stack 
                         uint8_t* memory = _alloc(joforth, end - start + 1);
                         memcpy(memory, buffer + start, end - start + 1);
-                        _ir_emit(irbuffer, kIr_ValuePtr);
-                        _ir_emit_ptr(irbuffer, memory);
-                        _ir_emit(irbuffer, kIr_Dot);
+                        _ir_emit(joforth, kIr_ValuePtr);
+                        _ir_emit_ptr(joforth, memory);
+                        _ir_emit(joforth, kIr_Dot);
                     }
                 }
                 else {
@@ -556,26 +547,28 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
                     _joforth_dict_entry_t* entry = _find_word(joforth, key);
 
                     if (entry) {
-                        _joforth_word_details_t* details = entry->_details;
 
-                        switch (details->_type & kWordType_TypeMask) {
-                        case kWordType_Prefix:
+                        switch (entry->_type) {
+                        case kEntryType_Prefix:
                         {
-                            assert(entry->_details->_depth < 2);
-                            _ir_emit(irbuffer, kIr_WordPtr);
-                            _ir_emit_ptr(irbuffer, entry);
+                            assert(entry->_depth < 2);
+                            _ir_emit(joforth, kIr_WordPtr);
+                            _ir_emit_ptr(joforth, entry);
                             // this word + param count
-                            target_word_count = word_count + entry->_details->_depth;
+                            target_word_count = word_count + entry->_depth;
                         }
                         break;
-                        case kWordType_Handler:
-                        case kWordType_Word:
-                            _ir_emit(irbuffer, kIr_WordPtr);
-                            _ir_emit_ptr(irbuffer, entry);
+                        case kEntryType_Native:
+                            _ir_emit(joforth, kIr_Native);
+                            _ir_emit_ptr(joforth, entry->_rep._handler);
                             break;
-                        case kWordType_Value:
-                            _ir_emit(irbuffer, kIr_Value);
-                            _ir_emit_value(irbuffer, details->_rep._value);
+                        case kEntryType_Word:
+                            _ir_emit(joforth, kIr_WordPtr);
+                            _ir_emit_ptr(joforth, entry);
+                            break;
+                        case kEntryType_Value:
+                            _ir_emit(joforth, kIr_Value);
+                            _ir_emit_value(joforth, entry->_rep._value);
                             break;
                         default:;
                         }
@@ -585,13 +578,13 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
                         if (_JO_FAILED(joforth->_status)) {
                             uint8_t* memory = _alloc(joforth, wp + 1);
                             memcpy(memory, buffer, wp + 1);
-                            _ir_emit(irbuffer, kIr_ValuePtr);
-                            _ir_emit_ptr(irbuffer, memory);
+                            _ir_emit(joforth, kIr_ValuePtr);
+                            _ir_emit_ptr(joforth, memory);
                             joforth->_status = _JO_STATUS_SUCCESS;
                         }
                         else {
-                            _ir_emit(irbuffer, kIr_Value);
-                            _ir_emit_value(irbuffer, value);
+                            _ir_emit(joforth, kIr_Value);
+                            _ir_emit_value(joforth, value);
                         }
                     }
                 }
@@ -602,17 +595,23 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
 
     } while (wp);
 
+    // terminate the ir buffer properly
+    _ir_emit(joforth, kIr_Null);
+
     // =====================================================================================
     // phase 2: interpret or compile
     // =====================================================================================
 
-    _joforth_word_details_t* details = 0;
     size_t irr = 0;
+    uint8_t* irbuffer = joforth->_ir_buffer;
 
     // are we interpreting or compiling? if the latter we need a bit of setup
     if (mode == kEvalMode_Compiling) {
-        assert(_ir_consume(irbuffer) == kIr_DefineWord);
-        const char* id = (const char*)_ir_consume_ptr(irbuffer);
+        _joforth_ir_t ir;
+        irbuffer = _ir_consume(irbuffer, &ir);
+        assert(ir == kIr_DefineWord);
+        const char* id;
+        irbuffer = _ir_consume_ptr(irbuffer, &id);
         joforth_word_key_t key = pearson_hash(id);
         _joforth_dict_entry_t* entry = _find_word(joforth, key);
         if (entry) {
@@ -621,210 +620,176 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
             return false;
         }
         entry = _add_entry(joforth, id);
-        // allocate a array for the sequence of words we need (minus the ; at the end)
-        details = entry->_details = (_joforth_word_details_t*)joforth->_allocator._alloc((word_count - 1) * sizeof(_joforth_word_details_t));
-        details->_depth = 0;
+        //ZZZ:
+        entry->_depth = 0;
+
+        // the word is already compiled at this point so we just need to store the IR for it and we're done
+        entry->_type = kEntryType_Word;
+        entry->_rep._ir = (uint8_t*)joforth->_allocator._alloc(joforth->_irw);
+        memcpy(entry->_rep._ir, joforth->_ir_buffer, joforth->_irw);
+
+        //ZZZ:
+        return true;
     }
 
     //ZZZ:
     _joforth_eval_mode_t mode_stack[32];
     size_t msp = 31;
 
-    // interpret or compile the contents of the IR buffer
-    while (!_ir_buffer_is_empty(irbuffer)) {
+    // keep going until the irstack is empty
+    while (true) {
 
-        _joforth_ir_t ir = _ir_consume(irbuffer);
+        // interpret or compile the contents of an IR buffer
+        while (*irbuffer != kIr_Null) {
 
-        switch (ir) {
-        case kIr_True:
-        {
-            if (mode != kEvalMode_Skipping) {
-                joforth_push_value(joforth, JOFORTH_TRUE);
-            }
-        }
-        break;
-        case kIr_False:
-        {
-            if (mode != kEvalMode_Skipping) {
-                joforth_push_value(joforth, JOFORTH_FALSE);
-            }
-        }
-        break;
-        case kIr_If:
-        {
-            //TODO: COMPILE
+            _joforth_ir_t ir;
+            irbuffer = _ir_consume(irbuffer, &ir);
 
-            // decide what to do based on TOS
-            joforth_value_t tos = joforth_pop_value(joforth);
-            if (tos == JOFORTH_FALSE) {
-                // skip until ELSE
-                mode = kEvalMode_Skipping;
-                // we'll switch back to interpreting later
-                mode_stack[msp--] = kEvalMode_Interpreting;
+            switch (ir) {
+            case kIr_True:
+            {
+                if (mode != kEvalMode_Skipping) {
+                    joforth_push_value(joforth, JOFORTH_TRUE);
+                }
             }
-            else {
-                // else we continue as if nothing happened until we hit ELSE...
-                mode_stack[msp--] = kEvalMode_Skipping;
+            break;
+            case kIr_False:
+            {
+                if (mode != kEvalMode_Skipping) {
+                    joforth_push_value(joforth, JOFORTH_FALSE);
+                }
             }
-        }
-        break;
-        case kIr_Else:
-        {
-            // switch to the mode selected by the last IF and continue
-            mode = mode_stack[++msp];
-        }
-        break;
-        case kIr_Then:
-        {
-            //TODO: COMPILING
-            // switch back to interpreting
-            mode = kEvalMode_Interpreting;
-        }
-        break;
-        case kIr_Dot:
-        {
-            if (mode != kEvalMode_Skipping) {
-                const char* str = (const char*)joforth_pop_value(joforth);
-                printf(str);
+            break;
+            case kIr_Invert:
+            {
+                if (mode != kEvalMode_Skipping) {
+                    assert(joforth->_sp < joforth->_stack_size - 1);
+                    // sends TRUE->FALSE and vice versa.
+                    joforth->_stack[joforth->_sp + 1] = ~joforth->_stack[joforth->_sp + 1];
+                }
             }
-        }
-        break;
-        case kIr_ValuePtr:
-        {
-            joforth_value_t value = (joforth_value_t)_ir_consume_ptr(irbuffer);
-            if (mode != kEvalMode_Skipping) {
-                //TODO: compiling...?
-                joforth_push_value(joforth, value);
-            }
-        }
-        break;
-        case kIr_Value:
-        {
-            joforth_value_t value = _ir_consume_value(irbuffer);
-            if (mode != kEvalMode_Skipping) {
-                if (mode == kEvalMode_Compiling) {
-                    // a number; we add this to the word sequence as an immediate value
-                    details->_type = kWordType_Value;
-                    details->_rep._value = value;
+            break;
+            case kIr_If:
+            {
+                // decide what to do based on TOS
+                joforth_value_t tos = joforth_pop_value(joforth);
+                if (tos == JOFORTH_FALSE) {
+                    // skip until ELSE
+                    mode = kEvalMode_Skipping;
+                    // we'll switch back to interpreting later
+                    mode_stack[msp--] = kEvalMode_Interpreting;
                 }
                 else {
+                    // else we continue as if nothing happened until we hit ELSE...
+                    mode_stack[msp--] = kEvalMode_Skipping;
+                }
+            }
+            break;
+            case kIr_Else:
+            {
+                // switch to the mode selected by the last IF and continue
+                mode = mode_stack[++msp];
+            }
+            break;
+            case kIr_Endif:
+            {
+                // switch back to interpreting
+                mode = kEvalMode_Interpreting;
+            }
+            break;
+            case kIr_Dot:
+            {
+                if (mode != kEvalMode_Skipping) {
+                    const char* str = (const char*)joforth_pop_value(joforth);
+                    printf(str);
+                }
+            }
+            break;
+            case kIr_ValuePtr:
+            {
+                joforth_value_t value;
+                irbuffer = _ir_consume_ptr(irbuffer, &value);
+                if (mode != kEvalMode_Skipping) {
                     joforth_push_value(joforth, value);
                 }
             }
-        }
-        break;
-        case kIr_WordPtr:
-        {
-            if (mode == kEvalMode_Compiling) {
-                details->_type = kWordType_Word;
-                details->_rep._word = (_joforth_dict_entry_t*)_ir_consume_ptr(irbuffer);
-            }
-            else {
-                _joforth_dict_entry_t* entry = (_joforth_dict_entry_t*)_ir_consume_ptr(irbuffer);
-                details = entry->_details;
-                // ========================================================================
-                // execute the words making up the entry until we hit the "kWordType_End" flag
-                // 
-                while (1) {
-                    // execute word(s)
-                    switch (details->_type & kWordType_TypeMask) {
-                    case kWordType_Handler:
-                        if (mode != kEvalMode_Skipping) {
-                            // check that the stack has enough variables for this routine to execute
-                            if ((joforth->_stack_size - joforth->_sp - 1) >= details->_depth) {
-                                details->_rep._handler(joforth);
-                                if (_JO_FAILED(joforth->_status)) {
-                                    return false;
-                                }
-                            }
-                            else {
-                                joforth->_status = _JO_STATUS_FAILED_PRECONDITION;
-                                return false;
-                            }
-                        }
-                        break;
-                    case kWordType_Value:
-                        if (mode != kEvalMode_Skipping) {
-                            joforth_push_value(joforth, details->_rep._value);
-                        }
-                        break;
-                    case kWordType_Word:
-                    {   if (mode != kEvalMode_Skipping) {
-                        // return entry on rstack (unless this is the last one)
-                        if ((details->_type & kWordType_End) == 0) {
-                            _push_rstack(joforth, entry, details + 1);
-                        }
-                        // switch to a different word
-                        entry = details->_rep._word;
-                        details = details->_rep._word->_details;
-                        continue;
-                    }
-                    }
-                    break;
-                    case kWordType_Prefix:
-                    {
-                        // first check that we've got enough arguments following this instruction
-                        //TODO: can CREATE, VARIABLE, SEE etc. accept the result of another word...?
-                        // for now; only accept value and word ptrs 
-                        assert(details->_depth < 2);
-
-                        //ZZZ: this doesn't check softly if we're at the end of the buffer
-                        _joforth_ir_t next_ir = _ir_consume(irbuffer);
-                        switch (next_ir) {
-                        case kIr_WordPtr:
-                        case kIr_ValuePtr:
-                        {
-                            //NOTE: we're not doing any type checking here, if it requires a WordPtr when a ValuePtr 
-                            //      is passed then things WILL go wrong...
-                            void* ptr = _ir_consume_ptr(irbuffer);
-                            if (mode != kEvalMode_Skipping) {
-                                joforth_push_value(joforth, (joforth_value_t)ptr);
-                                details->_rep._handler(joforth);
-                            }
-                        }
-                        break;
-                        default:
-                            joforth->_status = _JO_STATUS_INVALID_INPUT;
-                            return false;
-                        }
-                    }
-                    default:;
-                    }
-
-                    if (mode != kEvalMode_Skipping) {
-                        if ((details->_type & kWordType_End)) {
-                            if (_rstack_is_empty(joforth)) {
-                                // we're done for now
-                                break;
-                            }
-                            _joforth_rstack_entry_t i = _pop_rstack(joforth);
-                            entry = i._entry;
-                            details = i._details;
-                            continue;
-                        }
-                        // next word in multi-word sentence...
-                        ++details;
-                    }
+            break;
+            case kIr_Value:
+            {
+                joforth_value_t value;
+                irbuffer = _ir_consume_ptr(irbuffer, &value);
+                if (mode != kEvalMode_Skipping) {
+                    joforth_push_value(joforth, value);
                 }
             }
-        }
-        break;
-        default:;
+            break;
+            case kIr_Native:
+            {
+                joforth_word_handler_t handler;
+                irbuffer = _ir_consume_ptr(irbuffer, &handler);
+                if (mode != kEvalMode_Skipping) {
+                    handler(joforth);
+                }
+            }
+            break;
+            case kIr_DefineWord:
+            {
+                const char* id;
+                irbuffer = _ir_consume_ptr(irbuffer, &id);
+            }
+            break;
+            case kIr_WordPtr:
+            {
+                _joforth_dict_entry_t* entry;
+                irbuffer = _ir_consume_ptr(irbuffer, &entry);
+
+                if (entry->_type == kEntryType_Prefix) {
+                    // first check that we've got enough arguments following this instruction
+                            //TODO: can CREATE, VARIABLE, SEE etc. accept the result of another word...?
+                            // for now; only accept value and word ptrs 
+                    assert(entry->_depth < 2);
+
+                    //ZZZ: this doesn't check softly if we're at the end of the buffer
+                    _joforth_ir_t next_ir;
+                    irbuffer = _ir_consume(irbuffer, &next_ir);
+                    switch (next_ir) {
+                    case kIr_WordPtr:
+                    case kIr_ValuePtr:
+                    {
+                        //NOTE: we're not doing any type checking here, if it requires a WordPtr when a ValuePtr 
+                        //      is passed then things WILL go wrong...
+                        void* ptr;
+                        irbuffer = _ir_consume_ptr(irbuffer, &ptr);
+                        if (mode != kEvalMode_Skipping) {
+                            joforth_push_value(joforth, (joforth_value_t)ptr);
+                            entry->_rep._handler(joforth);
+                        }
+                    }
+                    break;
+                    default:
+                        joforth->_status = _JO_STATUS_INVALID_INPUT;
+                        return false;
+                    }
+                }
+                else {
+                    // switch to the entry's ir code and continue executing 
+                    _push_irstack(joforth, irbuffer);
+                    irbuffer = entry->_rep._ir;
+                }
+            }
+            break;
+            default:;
+            }
         }
 
-        if (mode == kEvalMode_Compiling) {
-            if (_ir_peek(irbuffer) != kIr_EndDefineWord) {
-                // advance details pointer as we're building a word
-                ++details;
-            }
-            else {
-                // terminate this word
-                details->_type |= kWordType_End;
-                // and consume the EndDefineWord IR
-                _ir_consume(irbuffer);
-            }
+        if (_irstack_is_empty(joforth)) {
+            // exit outer while
+            break;
         }
-    }
+
+        irbuffer = _pop_irstack(joforth);
+
+    }; // while(true)
 
     return true;
 }
@@ -835,11 +800,11 @@ void    joforth_dump_dict(joforth_t* joforth) {
         for (size_t i = 0u; i < JOFORTH_DICT_BUCKETS; ++i) {
             _joforth_dict_entry_t* entry = joforth->_dict + i;
             while (entry->_key) {
-                if ((entry->_details->_type & kWordType_Prefix) == 0) {
-                    printf("\tentry: key 0x%x, word \"%s\", takes %zu parameters\n", entry->_key, entry->_word, entry->_details->_depth);
+                if ((entry->_type == kEntryType_Prefix) == 0) {
+                    printf("\tentry: key 0x%x, word \"%s\", takes %zu parameters\n", entry->_key, entry->_word, entry->_depth);
                 }
                 else {
-                    printf("\tPREFIX entry: word \"%s\", takes %zu parameters\n", entry->_word, entry->_details->_depth);
+                    printf("\tPREFIX entry: word \"%s\", takes %zu parameters\n", entry->_word, entry->_depth);
                 }
                 entry = entry->_next;
             }

@@ -54,9 +54,12 @@ void test_comparison(void) {
 }
 
 void test_ifthenelse(void) {
-    assert(joforth_eval(&joforth, ".if-then-else 0 0 =  IF  TRUE  ELSE  .WRONG FALSE  THEN cr"));
+    assert(joforth_eval(&joforth, ".if-then-else 0 0 =  IF  TRUE  ELSE  .WRONG FALSE  ENDIF INVERT cr"));
     joforth_value_t tos = joforth_pop_value(&joforth);
-    assert(tos == JOFORTH_TRUE);
+    assert(tos == JOFORTH_FALSE);
+    assert(joforth_eval(&joforth, ": TEST     0 =  INVERT  IF   CR   .\"Not zero!\"   ENDIF  ;"));
+    assert(joforth_eval(&joforth, "0 TEST"));
+    assert(joforth_eval(&joforth, "-14 TEST"));
 }
 
 int main(int argc, char* argv[]) {

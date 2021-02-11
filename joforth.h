@@ -24,39 +24,27 @@ typedef struct _joforth_dict_entry _joforth_dict_entry_t;
 typedef void (*joforth_word_handler_t)(joforth_t* joforth);
 
 // used internally
-typedef enum _joforth_word_type {
-
-    kWordType_Handler = 1,
-    kWordType_Value,
-    kWordType_Word,
-    kWordType_Prefix,
-    kWordType_End = 8,
-    kWordType_TypeMask = 7
-
-} _joforth_word_type_t;
-
-// used internally
-typedef struct _joforth_word_details {
-    // this is either a single entry or an array of entries terminated with the "kWordType_End" type
-    _joforth_word_type_t    _type;
-    union {
-        // a native callable function 
-        joforth_word_handler_t              _handler;
-        // a value to push on the stack during execution
-        joforth_value_t                     _value;
-        // a dictonary entry; i.e. a call to another word (which contains one or more of these)
-        _joforth_dict_entry_t  *            _word;
-    } _rep;
-    // value stack depth required (i.e. number of arguments to word)
-    size_t                                  _depth;
-
-} _joforth_word_details_t;
-// used internally
 typedef struct _joforth_dict_entry {
     joforth_word_key_t              _key;
+    // id
     const char*                     _word;
-    // one or more words
-    _joforth_word_details_t   *     _details;
+    enum {
+        kEntryType_Null,
+        kEntryType_Native,
+        kEntryType_Value,
+        kEntryType_Word,
+        kEntryType_Prefix,
+    } _type;
+    // value stack depth required (i.e. number of arguments to word)
+    size_t                           _depth;
+    union {
+        // a native callable function 
+        joforth_word_handler_t          _handler;
+        // a value to push on the stack during execution
+        joforth_value_t                 _value;
+        // IR sequence, terminated with kIr_Null
+        uint8_t*                        _ir;  
+    } _rep;
 
     // for hash table linking only
     struct _joforth_dict_entry*     _next;
@@ -65,14 +53,8 @@ typedef struct _joforth_dict_entry {
 #define JOFORTH_DEFAULT_STACK_SIZE      0x8000
 #define JOFORTH_DEFAULT_MEMORY_SIZE     0x8000
 #define JOFORTH_DEFAULT_RSTACK_SIZE     0x100
-#define JOFORTH_TRUE                    ((joforth_value_t)1)
+#define JOFORTH_TRUE                    (~(joforth_value_t)0)
 #define JOFORTH_FALSE                   ((joforth_value_t)0)
-
-// used internally
-typedef struct _joforth_rstack_entry {
-    _joforth_dict_entry_t*      _entry;
-    _joforth_word_details_t*    _details;
-} _joforth_rstack_entry_t;
 
 // used to provide allocator/free functionality, joForth doesn't use any other allocator
 typedef struct _joforth_allocator {
@@ -80,15 +62,22 @@ typedef struct _joforth_allocator {
     void (*_free)(void*);
 } joforth_allocator_t;
 
-typedef struct _joforth_ir_buffer _joforth_ir_buffer_t;
-
 // the joForth VM state
 typedef struct _joforth {
     _joforth_dict_entry_t       *   _dict;
     joforth_value_t             *   _stack;
-    _joforth_rstack_entry_t     *   _rstack;
     uint8_t                     *   _memory;
-    _joforth_ir_buffer_t        *   _ir_buffer;
+
+    // buffers IR codes for the parser pass
+    uint8_t                     *   _ir_buffer;
+    size_t                          _irw;
+    size_t                          _ir_buffer_size;
+
+    // return locations for IR code when executing
+    uint8_t**                       _irstack;
+    size_t                          _irstack_size;
+    size_t                          _irp;
+
     joforth_allocator_t             _allocator;
     
     // current input base
@@ -138,6 +127,7 @@ static _JO_ALWAYS_INLINE joforth_value_t joforth_pop_value(joforth_t* joforth) {
 
 // read top value from the stack (use this in your handlers)
 static _JO_ALWAYS_INLINE joforth_value_t    joforth_top_value(joforth_t* joforth) {
+    assert(joforth->_sp < joforth->_stack_size-1);
     return joforth->_stack[joforth->_sp+1];
 }
 
