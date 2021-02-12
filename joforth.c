@@ -3,6 +3,7 @@
 #include "joforth_ir.h"
 #include <errno.h>
 #include <stdlib.h>
+#include <ctype.h>
 
 #include <stdio.h>
 
@@ -308,6 +309,7 @@ static void _see(joforth_t* joforth) {
             }
         }
         break;
+        default:;
         }
         printf("\n: %s, takes %zu parameters\n", entry->_word, entry->_depth);
     }
@@ -675,7 +677,8 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
                         // so that we can continune as if nothing happened...
                         size_t n = 1;
                         while (n < wp) {
-                            buffer[n - 1] = buffer[n++];
+                            buffer[n - 1] = buffer[n];
+                            n++;
                         }
                         wp--;
                         buffer[wp] = 0;
@@ -761,7 +764,7 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
         irbuffer = _ir_consume(irbuffer, &ir);
         assert(ir == kIr_DefineWord);
         const char* id;
-        irbuffer = _ir_consume_ptr(irbuffer, &id);
+        irbuffer = _ir_consume_ptr(irbuffer, (void**)&id);
         joforth_word_key_t key = pearson_hash(id);
         self = _find_word(joforth, key);
         if (self) {
@@ -912,14 +915,14 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
             {
                 if (mode != kEvalMode_Skipping) {
                     const char* str = (const char*)joforth_pop_value(joforth);
-                    printf(str);
+                    printf("%s",str);
                 }
             }
             break;
             case kIr_ValuePtr:
             {
                 joforth_value_t value;
-                irbuffer = _ir_consume_ptr(irbuffer, &value);
+                irbuffer = _ir_consume_ptr(irbuffer, (void**)&value);
                 if (mode != kEvalMode_Skipping) {
                     joforth_push_value(joforth, value);
                 }
@@ -928,7 +931,7 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
             case kIr_Value:
             {
                 joforth_value_t value;
-                irbuffer = _ir_consume_ptr(irbuffer, &value);
+                irbuffer = _ir_consume_ptr(irbuffer, (void**)&value);
                 if (mode != kEvalMode_Skipping) {
                     joforth_push_value(joforth, value);
                 }
@@ -937,7 +940,7 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
             case kIr_Native:
             {
                 _joforth_dict_entry_t* handler_entry;
-                irbuffer = _ir_consume_ptr(irbuffer, &handler_entry);
+                irbuffer = _ir_consume_ptr(irbuffer, (void**)&handler_entry);
                 if (mode != kEvalMode_Skipping) {
                     handler_entry->_rep._handler(joforth);
                     if (_JO_FAILED(joforth->_status)) {
@@ -949,7 +952,7 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
             case kIr_DefineWord:
             {
                 const char* id;
-                irbuffer = _ir_consume_ptr(irbuffer, &id);
+                irbuffer = _ir_consume_ptr(irbuffer, (void**)&id);
                 //NOTE: here we assume there can only be one, i.e. there is never more than one ":" define statement in a sentence
                 if (!self) {
                     // when interpreting we need "self"
@@ -974,7 +977,7 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
             {
                 // the current word, can be used for self reference 
                 _joforth_dict_entry_t* entry = 0;
-                irbuffer = _ir_consume_ptr(irbuffer, &entry);
+                irbuffer = _ir_consume_ptr(irbuffer, (void**)&entry);
 
                 if (entry->_type == kEntryType_Prefix) {
                     // first check that we've got enough arguments following this instruction
@@ -992,7 +995,7 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
                         //NOTE: we're not doing any type checking here, if it requires a WordPtr when a ValuePtr 
                         //      is passed then things WILL go wrong...
                         void* ptr;
-                        irbuffer = _ir_consume_ptr(irbuffer, &ptr);
+                        irbuffer = _ir_consume_ptr(irbuffer, (void**)&ptr);
                         if (mode != kEvalMode_Skipping) {
                             joforth_push_value(joforth, (joforth_value_t)ptr);
                             entry->_rep._handler(joforth);
