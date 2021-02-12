@@ -215,7 +215,96 @@ static void _see(joforth_t* joforth) {
     joforth_word_key_t key = pearson_hash(id);
     _joforth_dict_entry_t* entry = _find_word(joforth, key);
     if (entry) {
-        //TODO: traverse word list
+        printf("\"%s\"", entry->_word);
+        switch (entry->_type)
+        {
+        case kEntryType_Native:
+            printf(" native handler");
+            break;
+        case kEntryType_Prefix:
+            printf(" prefix");
+            break;
+        case kEntryType_Value:
+            printf(" value %lld", entry->_rep._value);
+            break;
+        case kEntryType_Word:
+        {
+            uint8_t*    ir = entry->_rep._ir;
+            while (*ir != kIr_Null) {
+                switch (*ir++) {
+                case kIr_Begin:
+                    printf(" begin");
+                    break;
+                case kIr_Do:
+                    printf(" do");
+                    break;
+                case kIr_Dot:
+                case kIr_DotDot:
+                    printf(" .");
+                    break;
+                case kIr_Else:
+                    printf(" else");
+                    break;
+                case kIr_DefineWord:
+                    printf(":");
+                    ir += sizeof(void*);
+                    break;
+                case kIr_EndDefineWord:
+                    printf(" ;");
+                    break;
+                case kIr_Endif:
+                    printf(" endif");
+                    break;
+                case kIr_False:
+                    printf(" false");
+                    break;
+                case kIr_If:
+                    printf(" if");
+                    break;
+                case kIr_IfZeroOperator:
+                    printf(" ?");
+                    break;
+                case kIr_Invert:
+                    printf(" invert");
+                    break;
+                case kIr_Loop:
+                    printf(" loop");
+                    break;
+                case kIr_Native:
+                {
+                    _joforth_dict_entry_t* dict_entry = ((_joforth_dict_entry_t**)ir)[0];
+                    ir += sizeof(void*);
+                    printf(" %s", dict_entry->_word);
+                }
+                break;
+                case kIr_Recurse:
+                    printf(" recurse");
+                    break;
+                case kIr_Repeat:
+                    printf(" repeat");
+                    break;
+                case kIr_True:
+                    printf(" true");
+                    break;
+                case kIr_Until:
+                    printf(" until");
+                    break;
+                case kIr_While:
+                    printf(" while");
+                    break;
+                case kIr_Value:
+                    ir += sizeof(joforth_value_t);
+                    break;
+                case kIr_ValuePtr:
+                case kIr_WordPtr:
+                    ir += sizeof(void*);
+                    break;
+                default:;
+                }
+            }
+        }
+        break;
+        }
         printf("\n: %s, takes %zu parameters\n", entry->_word, entry->_depth);
     }
     else {
@@ -341,7 +430,6 @@ void    joforth_add_word(joforth_t* joforth, const char* word, joforth_word_hand
     //printf("\nadded word \"%s\", key = 0x%x\n", i->_word, i->_key);
 }
 
-//REFACTOR
 static _JO_ALWAYS_INLINE void _push_irstack(joforth_t* joforth, uint8_t* loc) {
     assert(joforth->_irp);
     joforth->_irstack[joforth->_irp--] = loc;
@@ -615,7 +703,7 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
                         break;
                         case kEntryType_Native:
                             _ir_emit(joforth, kIr_Native);
-                            _ir_emit_ptr(joforth, entry->_rep._handler);
+                            _ir_emit_ptr(joforth, entry);
                             break;
                         case kEntryType_Word:
                             _ir_emit(joforth, kIr_WordPtr);
@@ -678,7 +766,7 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
             return false;
         }
         self = _add_entry(joforth, id);
-        //ZZZ:
+        //ZZZ: perhaps read this from a comment string?
         self->_depth = 0;
 
         // the word is already compiled at this point so we just need to store the IR for it and we're done
@@ -686,19 +774,18 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
         self->_rep._ir = (uint8_t*)joforth->_allocator._alloc(joforth->_irw);
         memcpy(self->_rep._ir, joforth->_ir_buffer, joforth->_irw);
 
-        //ZZZ:
         return true;
     }
 
-    //ZZZ:
-    _joforth_eval_mode_t mode_stack[32];
+    //NOTE: has to be the same depth as the irstack, just in case we hit something really deeply nested
+    _joforth_eval_mode_t mode_stack[JOFORTH_DEFAULT_IRSTACK_SIZE];
     size_t msp = 31;
     bool skip_one = false;
 
     // keep going until the irstack is empty
     while (true) {
 
-        // interpret or compile the contents of an IR buffer
+        // interpret the contents of an IR buffer
         while (*irbuffer != kIr_Null) {
 
             _joforth_ir_t ir;
@@ -786,7 +873,7 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
             case kIr_Until:
             {
                 if (mode != kEvalMode_Skipping) {
-                    uint8_t* loop_location =_pop_irstack(joforth);
+                    uint8_t* loop_location = _pop_irstack(joforth);
                     joforth_value_t tos = joforth_pop_value(joforth);
                     if (!tos) {
                         // go back to begin
@@ -799,21 +886,26 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
             }
             break;
             case kIr_Dot:
-            {                
-                if (mode != kEvalMode_Skipping) {                    
+            {
+                if (mode != kEvalMode_Skipping) {
                     joforth_value_t value = joforth_pop_value(joforth);
-                    if( joforth->_base == 10 ) {
+                    switch (joforth->_base)
+                    {
+                    case 10:
                         printf("%lld", value);
-                    }
-                    //ZZZ:
-                    else {
+                        break;
+                    case 16:
                         printf("%llx", value);
+                        break;
+                    default:
+                        printf("NaN");
+                        break;
                     }
                 }
             }
             break;
             case kIr_DotDot:
-            {                
+            {
                 if (mode != kEvalMode_Skipping) {
                     const char* str = (const char*)joforth_pop_value(joforth);
                     printf(str);
@@ -840,10 +932,10 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
             break;
             case kIr_Native:
             {
-                joforth_word_handler_t handler;
-                irbuffer = _ir_consume_ptr(irbuffer, &handler);
+                _joforth_dict_entry_t* handler_entry;
+                irbuffer = _ir_consume_ptr(irbuffer, &handler_entry);
                 if (mode != kEvalMode_Skipping) {
-                    handler(joforth);
+                    handler_entry->_rep._handler(joforth);
                     if (_JO_FAILED(joforth->_status)) {
                         return false;
                     }

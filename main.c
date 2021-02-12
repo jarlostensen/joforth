@@ -34,6 +34,7 @@ void test_recurse_statement(void) {
     assert(joforth_eval(&joforth, ": GCD    ( a b -- gcd)  ?DUP  IF  TUCK  MOD  recurse ENDIF ;"));
     assert(joforth_eval(&joforth, "784 48 gcd dup ."));
     assert(joforth_pop_value(&joforth) == 16);
+    assert(joforth_eval(&joforth, "cr see gcd"));
 }
 
 void test_create_allot(void) {
