@@ -23,7 +23,9 @@ typedef enum _joforth_ir {
     kIr_Do,
     kIr_Loop,
     kIr_EndDefineWord,    
-    kIr_Dot,
+    kIr_Recurse,
+    kIr_Dot,                    // . <tos value>
+    kIr_DotDot,                 // .<string pointer>
     kIr_True,
     kIr_False,
     kIr_Invert,
@@ -40,6 +42,7 @@ static const _joforth_keyword_lut_entry_t _joforth_keyword_lut[] = {
     { ._id = "true", ._ir = kIr_True },
     { ._id = "false", ._ir = kIr_False },
     { ._id = "invert", ._ir = kIr_Invert },
+    { ._id = "recurse", ._ir = kIr_Recurse },    
     { ._id = "if", ._ir = kIr_If },
     { ._id = "else", ._ir = kIr_Else },
     { ._id = "endif", ._ir = kIr_Endif },

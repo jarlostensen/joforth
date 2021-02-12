@@ -32,7 +32,7 @@ void test_define_word(void) {
 
 void test_recurse_statement(void) {
     assert(joforth_eval(&joforth, ": GCD    ( a b -- gcd)  ?DUP  IF  TUCK  MOD  recurse ENDIF ;"));
-    assert(joforth_eval(&joforth, "784 48 gcd"));
+    assert(joforth_eval(&joforth, "784 48 gcd dup ."));
     assert(joforth_pop_value(&joforth) == 16);
 }
 
@@ -73,6 +73,12 @@ void test_arithmetic(void) {
     assert(joforth_pop_value(&joforth)==3);
     assert(joforth_eval(&joforth, "7 3 mod"));
     assert(joforth_pop_value(&joforth)==1);
+}
+
+void test_loops(void) {
+    assert(joforth_eval(&joforth, ": COUNTDOWN    ( n --) BEGIN  CR   DUP  .  1 -   DUP   0  =   UNTIL  DROP  ;"));
+    assert(joforth_eval(&joforth, "5 countdown cr"));
+    assert(joforth_stack_is_empty(&joforth));
 }
 
 void test_stack_ops(void) {
@@ -122,6 +128,7 @@ int main(int argc, char* argv[]) {
     test_define_word();
     test_ifthenelse();
     test_dec_hex();
+    test_loops();
     test_create_allot();
     test_incorrect_number();
     test_comparison();
@@ -129,6 +136,6 @@ int main(int argc, char* argv[]) {
     test_recurse_statement();
     
     printf(" bye\n");
-    joforth_dump_stack(&joforth);
+    assert(joforth_stack_is_empty(&joforth));
     joforth_destroy(&joforth);
 }
