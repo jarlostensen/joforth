@@ -67,6 +67,7 @@ void test_ifthenelse(void) {
     assert(joforth_eval(&joforth, ": TEST     0 =  INVERT  IF   CR   .\"Not zero!\"   ENDIF  ;"));
     assert(joforth_eval(&joforth, ".0 0 TEST cr"));
     assert(joforth_eval(&joforth, ".-14 -14 TEST cr"));
+    assert(joforth_eval(&joforth, "see TEST cr"));
 }
 
 void test_arithmetic(void) {

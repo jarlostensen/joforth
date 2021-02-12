@@ -229,7 +229,7 @@ static void _see(joforth_t* joforth) {
             break;
         case kEntryType_Word:
         {
-            uint8_t*    ir = entry->_rep._ir;
+            uint8_t* ir = entry->_rep._ir;
             while (*ir != kIr_Null) {
                 switch (*ir++) {
                 case kIr_Begin:
@@ -293,8 +293,12 @@ static void _see(joforth_t* joforth) {
                     printf(" while");
                     break;
                 case kIr_Value:
+                {
+                    joforth_value_t value = *((joforth_value_t*)ir);
                     ir += sizeof(joforth_value_t);
-                    break;
+                    printf(" %lld", value);
+                }
+                break;
                 case kIr_ValuePtr:
                 case kIr_WordPtr:
                     ir += sizeof(void*);
