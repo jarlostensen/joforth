@@ -605,7 +605,7 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
     // =====================================================================================
 
     size_t word_count = 0;
-    size_t target_word_count = 0;   //< used when we parse prefix words
+    size_t target_word_count = 0;   //< used when we parse prefix words    
     do {
 
         if (target_word_count && word_count >= target_word_count) {
@@ -657,6 +657,10 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
                     }
                 }
                 else if (buffer[0] == '?') {
+                    //TODO: Forth uses this for other things as well, so this shoud 
+                    //      be changed to just a special prefix operator and then interpreted 
+                    //      during IR execution
+
                     // ? prefix (if zero)
                     if (wp > 1) {
                         // what follows will be executed if and only if tos!=0
@@ -742,7 +746,7 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
 
     size_t irr = 0;
     uint8_t* irbuffer = joforth->_ir_buffer;
-
+    
     // for self reference, i.e. "recurse"
     _joforth_dict_entry_t* self = 0;
 
@@ -774,8 +778,10 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
 
     //NOTE: has to be the same depth as the irstack, just in case we hit something really deeply nested
     _joforth_eval_mode_t mode_stack[JOFORTH_DEFAULT_IRSTACK_SIZE];
-    size_t msp = 31;
+    size_t msp = JOFORTH_DEFAULT_IRSTACK_SIZE-1;
+    // used to skip the next instruction (handling the ? prefix operator)
     bool skip_one = false;
+    size_t block_depth = 0; //< incremented when we enter a block, decremented when we leave
 
     // keep going until the irstack is empty
     while (true) {
@@ -812,24 +818,35 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
             break;
             case kIr_If:
             {
-                //TODO: SKIPPING, this won't work with nested if's that need to be skipped
-
-                // decide what to do based on TOS
-                joforth_value_t tos = joforth_pop_value(joforth);
-                if (tos == JOFORTH_FALSE) {
-                    // skip until ELSE
-                    mode = kEvalMode_Skipping;
-                    // we'll switch back to interpreting later
-                    mode_stack[msp--] = kEvalMode_Interpreting;
-                }
+                if( mode != kEvalMode_Skipping ) {
+                    // decide what to do based on TOS
+                    joforth_value_t tos = joforth_pop_value(joforth);
+                    if (tos == JOFORTH_FALSE) {
+                        // skip until ELSE
+                        mode = kEvalMode_Skipping;
+                        // ENDIF will keep interpreting
+                        mode_stack[msp--] = kEvalMode_Interpreting;
+                        // ELSE will switch to interpreting
+                        mode_stack[msp--] = kEvalMode_Interpreting;                        
+                    }
+                    else {
+                        // ENDIF will switch back to interpreting
+                        mode_stack[msp--] = kEvalMode_Interpreting;
+                        // ELSE will switch to skipping
+                        mode_stack[msp--] = kEvalMode_Skipping;                        
+                    }
+                } 
                 else {
-                    // else we continue as if nothing happened until we hit ELSE...
+                    // this IF is being skipped; ENDIF and ELSE will keep skipping
                     mode_stack[msp--] = kEvalMode_Skipping;
+                    mode_stack[msp--] = kEvalMode_Skipping;                    
                 }
             }
             break;
             case kIr_IfZeroOperator:
             {
+                //TODO: change to general ? operator handler
+
                 if (mode != kEvalMode_Skipping) {
                     joforth_value_t tos = joforth_top_value(joforth);
                     skip_one = tos == 0;
@@ -844,16 +861,14 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
             break;
             case kIr_Else:
             {
-                //TODO: SKIPPING, this won't work with nested if's that need to be skipped
                 // switch to the mode selected by the last IF and continue
                 mode = mode_stack[++msp];
             }
             break;
             case kIr_Endif:
-            {
-                //TODO: SKIPPING, this won't work with nested if's that need to be skipped
-                // switch back to interpreting
-                mode = kEvalMode_Interpreting;
+            {                
+                // switch back to the active mode of the leading IF
+                mode = mode_stack[++msp];
             }
             break;
             case kIr_Begin:
