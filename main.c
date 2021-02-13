@@ -108,13 +108,7 @@ void test_stack_ops(void) {
 
 int main(int argc, char* argv[]) {
 
-    joforth_allocator_t allocator = {
-        ._alloc = malloc,
-        ._free = free,
-    };
-
     joforth._stack_size = 0;    
-    joforth._rstack_size = 0;
     joforth._memory_size = 0;
     joforth._allocator = *(&(joforth_allocator_t){
         ._alloc = malloc,
@@ -122,9 +116,6 @@ int main(int argc, char* argv[]) {
     });
     joforth_initialise(&joforth);
 
-    joforth_dump_dict(&joforth);
-    printf("\n");
-    
     assert(joforth_eval(&joforth, ".\"running tests..\" cr"));
     test_stack_ops();
     test_define_word();

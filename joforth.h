@@ -51,8 +51,8 @@ typedef struct _joforth_dict_entry {
     struct _joforth_dict_entry*     _next;
 } _joforth_dict_entry_t;
 
-#define JOFORTH_DEFAULT_STACK_SIZE      0x8000
-#define JOFORTH_DEFAULT_MEMORY_SIZE     0x8000
+#define JOFORTH_DEFAULT_STACK_SIZE      0x400
+#define JOFORTH_DEFAULT_MEMORY_SIZE     0x20000
 #define JOFORTH_DEFAULT_RSTACK_SIZE     0x100
 #define JOFORTH_TRUE                    (~(joforth_value_t)0)
 #define JOFORTH_FALSE                   ((joforth_value_t)0)
@@ -85,13 +85,10 @@ typedef struct _joforth {
     int                             _base;
     // if 0 then default, in units of joforth_value_t 
     size_t                          _stack_size;
-    // if 0 then default, in units of _joforth_dict_entry_t 
-    size_t                          _rstack_size;    
     // if 0 then default, in units of bytes
     size_t                          _memory_size;
     // stack pointers
     size_t                          _sp;
-    size_t                          _rp;
     // memory allocation pointer (we don't do "free")
     size_t                          _mp;
     // status code of last operation
