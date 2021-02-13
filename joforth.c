@@ -781,7 +781,11 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
     size_t msp = JOFORTH_DEFAULT_IRSTACK_SIZE-1;
     // used to skip the next instruction (handling the ? prefix operator)
     bool skip_one = false;
-    size_t block_depth = 0; //< incremented when we enter a block, decremented when we leave
+    
+    //ZZZ: incremented by one for each IF, decremented by one for ENDIF
+    size_t if_nest_level = 0;
+    //ZZZ: set to if_nest_level, if != we have an IF-ENDIF inbetween an IF-ELSE....
+    size_t else_nest_level = 0;
 
     // keep going until the irstack is empty
     while (true) {
@@ -818,6 +822,8 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
             break;
             case kIr_If:
             {
+                ++if_nest_level;
+
                 if( mode != kEvalMode_Skipping ) {
                     // decide what to do based on TOS
                     joforth_value_t tos = joforth_pop_value(joforth);
@@ -861,14 +867,26 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
             break;
             case kIr_Else:
             {
+                else_nest_level = if_nest_level;
+
                 // switch to the mode selected by the last IF and continue
                 mode = mode_stack[++msp];
             }
             break;
             case kIr_Endif:
-            {                
+            {   
+                if ( else_nest_level < if_nest_level ) {
+                    // we're inside an if-endif so we need to pop 
+                    // the stack as many times as ELSE didn't pop
+                    for( size_t level = (if_nest_level-else_nest_level); level>0; --level) {
+                        ++msp;
+                    }
+                } else {
+                    --else_nest_level;
+                }
                 // switch back to the active mode of the leading IF
                 mode = mode_stack[++msp];
+                --if_nest_level;
             }
             break;
             case kIr_Begin:
