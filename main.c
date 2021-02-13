@@ -81,6 +81,7 @@ void test_loops(void) {
     assert(joforth_eval(&joforth, ": COUNTDOWN    ( n --) BEGIN  CR   DUP  .  1 -   DUP   0  =   UNTIL  DROP  ;"));
     assert(joforth_eval(&joforth, "5 countdown cr"));
     assert(joforth_stack_is_empty(&joforth));
+    assert(joforth_eval(&joforth, ".\"do-loop: \" 0 10 do .step... loop cr"));
 }
 
 void test_stack_ops(void) {

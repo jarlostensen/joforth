@@ -1035,6 +1035,29 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
                 }
             }
             break;
+            case kIr_Do:
+            {
+                // push the next instruction for loop to pick up                
+                _push_irstack(joforth, irbuffer);
+            }
+            break;
+            case kIr_Loop:
+            {
+                joforth_value_t end = joforth_pop_value(joforth);
+                joforth_value_t i = joforth_pop_value(joforth);
+                assert(i<end);
+                uint8_t* do_loc = _pop_irstack(joforth);
+                ++i;
+                if(i<end) {
+                    // keep going
+                    _push_irstack(joforth, irbuffer = do_loc);
+                    // push i and end back on the stack
+                    joforth_push_value(joforth, i);
+                    joforth_push_value(joforth, end);
+                }
+                // else we're done
+            }
+            break;
             default:;
             }
 
