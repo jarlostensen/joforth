@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.18)
 project(joForth)
 set(CMAKE_C_STANDARD 11)
 
-option(USE_LIBRARY "compile as library" OFF)
+option(BUILD_AS_LIBRARY "build as library" OFF)
 
 if(USE_LIBRARY)
 add_library(joForth joforth.c jo.h joforth_ir.h)
