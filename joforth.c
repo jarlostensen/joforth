@@ -50,7 +50,11 @@ static _joforth_dict_entry_t* _add_entry(joforth_t* joforth, const char* word) {
     i->_next = (_joforth_dict_entry_t*)_alloc(joforth, sizeof(_joforth_dict_entry_t));
     memset(i->_next, 0, sizeof(_joforth_dict_entry_t));
     i->_key = key;
-    i->_word = word; //<ZZZ: this *should* be copied, not stored    
+    const size_t len = strlen(word)+1;
+    char* word_copy = (char*)_alloc(joforth, len);
+    memcpy(word_copy, word, len);
+    i->_word = word_copy;
+    i->_doc = 0;
 
     return i;
 }
@@ -245,6 +249,9 @@ static void _see(joforth_t* joforth) {
                     break;
                 case kIr_DefineWord:
                     printf(": %s", entry->_word);
+                    if(entry->_doc) {
+                        printf(" (%s)", entry->_doc);
+                    }
                     ir += sizeof(void*);
                     break;
                 case kIr_EndDefineWord:
@@ -272,7 +279,7 @@ static void _see(joforth_t* joforth) {
                 {
                     _joforth_dict_entry_t* dict_entry = ((_joforth_dict_entry_t**)ir)[0];
                     ir += sizeof(void*);
-                    printf(" %s", dict_entry->_word);
+                    printf(" %s", dict_entry->_word);                    
                 }
                 break;
                 case kIr_Recurse:
@@ -497,7 +504,7 @@ static size_t _count_words(const char* word) {
                 while (word[0] && word[0] != ')') ++word;
                 if (!word[0]) {
                     return 0;
-                }
+                }                
                 ++word;
                 continue;
             }
@@ -511,20 +518,29 @@ static size_t _count_words(const char* word) {
     return words;
 }
 
-static const char* _next_word(joforth_t* joforth, char* buffer, size_t buffer_size, const char* word, size_t* wp_) {
+static const char* _next_word(joforth_t* joforth, 
+        char* buffer, size_t buffer_size, 
+        const char* word, size_t* wp_,
+        const char** comment) {
 
+    if ( comment) {
+        *comment = 0;
+    }
     *wp_ = 0;
     while (word[0] && word[0] == ' ') ++word;
     if (!word[0]) {
         return 0;
     }
-    // skip comments
+    // skip comments (but return pointer to it so that we can save it)
     if (word[0] == '(') {
-        while (word[0] && word[0] != ')') ++word;
+        if(comment) {
+            *comment = word+1;
+        }
+        while (word[0] && word[0] != ')') ++word;        
         if (!word[0]) {
             joforth->_status = _JO_STATUS_INVALID_INPUT;
             return 0;
-        }
+        }        
         ++word;
         while (word[0] && word[0] == ' ') ++word;
         if (!word[0]) {
@@ -579,22 +595,25 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
     // reset!
     joforth->_irw = 0;
 
+    // comment (if any); we'll use it if we're compiling
+    const char* comment = 0;
+
     if (mode == kEvalMode_Compiling) {
 
         _ir_emit(joforth, kIr_DefineWord);
         // skip ":"
         word++;
         // we expect the identifier to be next
-        word = _next_word(joforth, buffer, JOFORTH_MAX_WORD_LENGTH, word, &wp);
+        word = _next_word(joforth, buffer, JOFORTH_MAX_WORD_LENGTH, word, &wp, 0);
         if (!word || _JO_FAILED(joforth->_status)) {
             return false;
         }
         uint8_t* memory = _alloc(joforth, wp + 1);
         memcpy(memory, buffer, wp + 1);
-        _ir_emit_ptr(joforth, memory);
+        _ir_emit_ptr(joforth, memory);        
     }
 
-    word = _next_word(joforth, buffer, JOFORTH_MAX_WORD_LENGTH, word, &wp);
+    word = _next_word(joforth, buffer, JOFORTH_MAX_WORD_LENGTH, word, &wp, &comment);
     if (!word || _JO_FAILED(joforth->_status)) {
         return false;
     }
@@ -733,7 +752,7 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
             }
         }
         ++word_count;
-        word = _next_word(joforth, buffer, JOFORTH_MAX_WORD_LENGTH, word, &wp);
+        word = _next_word(joforth, buffer, JOFORTH_MAX_WORD_LENGTH, word, &wp, 0);
 
     } while (wp);
 
@@ -767,7 +786,31 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
         self = _add_entry(joforth, id);
         //ZZZ: perhaps read this from a comment string?
         self->_depth = 0;
+        if(comment) {
+            size_t comment_length = 0;
+            while(comment[comment_length++]!=')') ;
+            char* doc_copy = (char*)_alloc(joforth, comment_length);
+            memcpy(doc_copy, comment, comment_length);
+            doc_copy[comment_length-1] = 0;
+            self->_doc = (const char*)doc_copy;
 
+            // read the depth from the comment string
+            // we exepct the comment is reliable, i.e. 
+            // if the word takes two parameters then there are 
+            // two distinct names listed before the '--'
+            size_t whitespace_edge = 0;
+            // skip any leading whitespace
+            while(*doc_copy==' ') ++doc_copy;
+            while( *doc_copy!='-' && *doc_copy!=')' ) {
+                if ( *doc_copy==' ' ) {
+                    ++whitespace_edge;
+                    // skip another whitespace
+                    while(*doc_copy==' ') ++doc_copy;
+                }
+                ++doc_copy;
+            }
+            self->_depth = whitespace_edge;
+        }
         // the word is already compiled at this point so we just need to store the IR for it and we're done
         self->_type = kEntryType_Word;
         self->_rep._ir = (uint8_t*)_alloc(joforth, joforth->_irw);
@@ -782,9 +825,9 @@ bool    joforth_eval(joforth_t* joforth, const char* word) {
     // used to skip the next instruction (handling the ? prefix operator)
     bool skip_one = false;
     
-    //ZZZ: incremented by one for each IF, decremented by one for ENDIF
+    // incremented by one for each IF, decremented by one for ENDIF
     size_t if_nest_level = 0;
-    //ZZZ: set to if_nest_level, if != we have an IF-ENDIF inbetween an IF-ELSE....
+    // set to if_nest_level, if != we have an IF-ENDIF inbetween an IF-ELSE....
     size_t else_nest_level = 0;
 
     // keep going until the irstack is empty

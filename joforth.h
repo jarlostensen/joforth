@@ -29,6 +29,7 @@ typedef struct _joforth_dict_entry {
     joforth_word_key_t              _key;
     // id
     const char*                     _word;
+    const char*                     _doc;
     enum {
         kEntryType_Null,
         kEntryType_Native,
