@@ -1,0 +1,3 @@
+[submodule "deps/joBase"]
+	path = deps/joBase
+	url = https://github.com/jarlostensen/joBase.git
