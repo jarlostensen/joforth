@@ -3,6 +3,7 @@
 #include "joforth_ir.h"
 #include <errno.h>
 #include <stdlib.h>
+#include <string.h>
 #include <ctype.h>
 
 #include <stdio.h>
