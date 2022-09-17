@@ -12,7 +12,6 @@ FetchContent_Declare(joBase
     BUILD_COMMAND ""
 )
 FetchContent_MakeAvailable(joBase)
-message("joBase_SOURCE_DIR = ${jobase_SOURCE_DIR}")
 
 if(JOFORTH_BUILD_AS_LIB)
     message("${PROJECT_NAME}: building as library")
