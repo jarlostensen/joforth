@@ -11,7 +11,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <string.h>
-#include <joBase/joBase.h>
+#include <joBase.h>
 
 #define JOFORTH_MAX_WORD_LENGTH 128
 
